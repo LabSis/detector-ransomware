@@ -1,0 +1,6 @@
+Para compilar: make
+
+Instalación de módulos:
+# insmod detector.ko
+# lsmod
+# rmmod detector
