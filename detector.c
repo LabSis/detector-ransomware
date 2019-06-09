@@ -15,12 +15,19 @@
 #define MAX_VERSION_LEN   256
 #define MAX_PROCESS_COUNT 1000
 #define THRESHOLD 500000
+#define REPORT_COUNT_SYS_CALL 1000
 
 unsigned long *syscall_table = NULL;
 
 int processes[MAX_PROCESS_COUNT];
-int counts[MAX_PROCESS_COUNT];
-int last_index_process = 0;
+int write_counts[MAX_PROCESS_COUNT];
+int read_counts[MAX_PROCESS_COUNT];
+int other_counts[MAX_PROCESS_COUNT];
+int killed_process[MAX_PROCESS_COUNT];
+//char *processes_name[MAX_PROCESS_COUNT];
+
+int last_index_process = -1;
+long total_sys_call = 0;
 
 asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
 
@@ -185,76 +192,124 @@ char *acquire_kernel_version (char *buf) {
     return kernel_version;
 }
 
+int findIndexProcessByPid(int pid) {
+	int i = 0;
+	int index = -1;
+	for (i = 0; i <= last_index_process; i++) {
+		if (killed_process[i] == 0 && processes[i] == pid) {
+			index = i;
+			break;
+		}
+	}
+	return index;
+}
+
+int newProcess() {
+	int i = 0;
+	int index = -1;
+	// Search killed process
+	for (i = 0; i <= last_index_process; i++) {
+		if (killed_process[i] == 1) {
+			// Is dead
+			index = i;
+			killed_process[i] = 0;
+			break;
+		}
+	}
+	if (index == -1) {
+		last_index_process++;
+		index = last_index_process;
+	}
+	if (last_index_process < MAX_PROCESS_COUNT) {
+		processes[index] = current->pid;
+		//processes_name[index] = current->comm;
+	} else {
+		printk(KERN_INFO "Error, no hay suficiente espacio en la tabla de procesos.\n");
+	}
+
+	return index;
+}
+
+int be_should_kill_it(int index_process) {
+	//int ok = 0;
+	return write_counts[index_process] > THRESHOLD;
+}
+
+void kill_current_process(int index_process) {
+	int signum = SIGKILL;
+	struct siginfo info;
+	memset(&info, 0, sizeof(struct siginfo));
+	info.si_signo = signum;
+	int ret = send_sig_info(signum, &info, current);
+	if (ret < 0) {
+	  printk(KERN_INFO "error sending signal\n");
+	}
+	killed_process[index_process] = 1;
+}
+
+void report() {
+	printk(KERN_INFO "Reporte del detector\n");
+	int i = 0;
+	for (i = 0; i <= last_index_process; i++) {
+		if (killed_process[i] == 0) {
+			printk(KERN_INFO "Cantidad de escrituras: %d", write_counts[i]);
+			printk(KERN_INFO "Cantidad de lecturas: %d", read_counts[i]);
+			printk(KERN_INFO "Cantidad de otras: %d", other_counts[i]);
+			break;
+		}
+	}
+	printk(KERN_INFO "Reporte del detector\n");
+}
+
 asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size) {
 	int pid = current->pid;
-	int ok = 0;
+	int killed = 0;
 	int i = 0;
-	/* Search if the process overcome the threshold */
-	for (i = 0; i < last_index_process; i++) {
-        if (processes[i] == pid) {
-            counts[i]++;
-            if (counts[i] > THRESHOLD) {
-                int signum = SIGKILL;
-                struct siginfo info;
-                memset(&info, 0, sizeof(struct siginfo));
-                info.si_signo = signum;
-                int ret = send_sig_info(signum, &info, current);
-                if (ret < 0) {
-                  printk(KERN_INFO "error sending signal\n");
-                }
-//                printk(KERN_EMERG "ATENCIÓN!!! POSIBLE RANSOMWARE. PID: %d = %d", pid, counts[i]);
-            }
-            ok = 1;
-            break;
-        }
-    }
-    if (ok == 0) {
-        if (last_index_process < MAX_PROCESS_COUNT) {
-            processes[last_index_process] = pid;
-            counts[last_index_process]++;
-            if (counts[last_index_process] > THRESHOLD) {
-                int signum = SIGKILL;
-                struct siginfo info;
-                memset(&info, 0, sizeof(struct siginfo));
-                info.si_signo = signum;
-                int ret = send_sig_info(signum, &info, current);
-                if (ret < 0) {
-                  printk(KERN_INFO "error sending signal\n");
-                }
-//                printk(KERN_EMERG "ATENCIÓN!!! POSIBLE RANSOMWARE. PID: %d = %d", pid, counts[i]);
-            }
-            last_index_process++;
-            ok = 1;
-        } else {
-            printk(KERN_EMERG "No queda espacio en el array");
-        }
-    }
-    /*if (ok == 1) {
-        count++;
-	    if (count % 100 == 0) {
-	        printk(KERN_INFO "------- START -");
-	        for (i = 0; i < last_index_process; i++) {
-	            printk(KERN_INFO "PID %d = %d", processes[i], counts[i]);
-            }
-		    printk(KERN_INFO "------- END -");
-	    }
-    }*/
+	int indexProcess = findIndexProcessByPid(pid);
+	if (indexProcess != -1) {
+		// If exists already
+		write_counts[indexProcess]++;
+	} else {
+		// If not exist
+		indexProcess = newProcess();
+		if (indexProcess != -1) {
+			write_counts[indexProcess]++;
+		}
+	}
 
-    return original_write(fd, bytes, size);
+	if (indexProcess != -1) {
+		int be_should = be_should_kill_it(indexProcess);
+		if (be_should == 1) {
+			kill_current_process(indexProcess);
+			killed = 1;
+		}
+	}
+	total_sys_call++;
+	if (total_sys_call % REPORT_COUNT_SYS_CALL == 0) {
+		report();
+	}
+
+	/*if (killed == 0) {
+
+	}*/
+	return original_write(fd, bytes, size);
 }
 
 static int __init onload(void) {
     int i = 0;
+
+    for (i = 0; i < MAX_PROCESS_COUNT; i++) {
+        processes[i] = -1;
+        write_counts[i] = 0;
+        read_counts[i] = 0;
+        other_counts[i] = 0;
+        killed_process[i] = 0;
+    }
+
     char *kernel_version = kmalloc(MAX_VERSION_LEN, GFP_KERNEL);
-    //printk(KERN_WARNING "Hello world!\n");
-    // printk(KERN_INFO "Version: %s\n", acquire_kernel_version(kernel_version));
-  
+
     find_sys_call_table(acquire_kernel_version(kernel_version));
-  
-    /*printk(KERN_INFO "Syscall table address: %p\n", syscall_table);
-    printk(KERN_INFO "sizeof(unsigned long *): %zx\n", sizeof(unsigned long*));
-    printk(KERN_INFO "sizeof(sys_call_table) : %zx\n", sizeof(syscall_table));*/
-  
+
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
         original_write = (void *)syscall_table[__NR_write];
@@ -264,14 +319,9 @@ static int __init onload(void) {
     } else {
         printk(KERN_INFO "Error al detectar la syscall table\n");
     }
-  
+
     kfree(kernel_version);
-  
-    for (i = 0; i < MAX_PROCESS_COUNT; i++) {
-        processes[i] = -1;
-        counts[i] = 0;
-    }
-  
+
     /*
      * A non 0 return means init_module failed; module can't be loaded.
      */
@@ -287,8 +337,6 @@ static void __exit onunload(void) {
     } else {
         printk(KERN_INFO "Error al desactivar el detector de Ransomware\n");
     }
-
-    //printk(KERN_INFO "Goodbye world!\n");
 }
 
 module_init(onload);
