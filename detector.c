@@ -5,7 +5,6 @@
 #include <linux/fs.h>      /* filp_open */
 #include <linux/slab.h>    /* kmalloc */
 #include <linux/sched.h>
-
 #include <asm/paravirt.h> /* write_cr0 */
 #include <asm/uaccess.h>  /* get_fs, set_fs */
 
@@ -14,17 +13,14 @@
 #define PROC_V    "/proc/version"
 #define BOOT_PATH "/boot/System.map-"
 #define MAX_VERSION_LEN   256
-#define MAX_ARRAY_LENGTH 300
-#define THRESHOLD 100000
+#define MAX_PROCESS_COUNT 1000
+#define THRESHOLD 500000
 
 unsigned long *syscall_table = NULL;
-//unsigned long *syscall_table = (unsigned long *)0xffffffff81801400;
 
-
-int processes[MAX_ARRAY_LENGTH];
-int counts[MAX_ARRAY_LENGTH];
-int index = 0;
-int count = 0;
+int processes[MAX_PROCESS_COUNT];
+int counts[MAX_PROCESS_COUNT];
+int last_index_process = 0;
 
 asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
 
@@ -108,34 +104,23 @@ static int find_sys_call_table (char *kern_ver) {
      
                     return -1;
                 }
- 
                 memset(sys_string, 0, MAX_VERSION_LEN);
-
                 strncpy(sys_string, strsep(&system_map_entry_ptr, " "), MAX_VERSION_LEN);
-             
-                //syscall_table = (unsigned long long *) kstrtoll(sys_string, NULL, 16);
-                //syscall_table = kmalloc(sizeof(unsigned long *), GFP_KERNEL);
-                //syscall_table = kmalloc(sizeof(syscall_table), GFP_KERNEL);
                 kstrtoul(sys_string, 16, &syscall_table);
-                //printk(KERN_INFO "syscall_table retrieved\n");
-                 
                 kfree(sys_string);
-                 
+
                 break;
             }
-             
             memset(system_map_entry, 0, MAX_VERSION_LEN);
             continue;
         }
-         
         i++;
     }
- 
+
     filp_close(f, 0);
     set_fs(oldfs);
-     
     kfree(filename);
- 
+
     return 0;
 }
 
@@ -200,11 +185,12 @@ char *acquire_kernel_version (char *buf) {
     return kernel_version;
 }
 
-asmlinkage int new_write (unsigned int x, const char __user *y, size_t size) {
+asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size) {
 	int pid = current->pid;
 	int ok = 0;
 	int i = 0;
-	for (i = 0; i < index; i++) {
+	/* Search if the process overcome the threshold */
+	for (i = 0; i < last_index_process; i++) {
         if (processes[i] == pid) {
             counts[i]++;
             if (counts[i] > THRESHOLD) {
@@ -223,10 +209,10 @@ asmlinkage int new_write (unsigned int x, const char __user *y, size_t size) {
         }
     }
     if (ok == 0) {
-        if (index < MAX_ARRAY_LENGTH) {
-            processes[index] = pid;
-            counts[index]++;
-            if (counts[index] > THRESHOLD) {
+        if (last_index_process < MAX_PROCESS_COUNT) {
+            processes[last_index_process] = pid;
+            counts[last_index_process]++;
+            if (counts[last_index_process] > THRESHOLD) {
                 int signum = SIGKILL;
                 struct siginfo info;
                 memset(&info, 0, sizeof(struct siginfo));
@@ -237,7 +223,7 @@ asmlinkage int new_write (unsigned int x, const char __user *y, size_t size) {
                 }
 //                printk(KERN_EMERG "ATENCIÓN!!! POSIBLE RANSOMWARE. PID: %d = %d", pid, counts[i]);
             }
-            index++;
+            last_index_process++;
             ok = 1;
         } else {
             printk(KERN_EMERG "No queda espacio en el array");
@@ -247,14 +233,14 @@ asmlinkage int new_write (unsigned int x, const char __user *y, size_t size) {
         count++;
 	    if (count % 100 == 0) {
 	        printk(KERN_INFO "------- START -");
-	        for (i = 0; i < index; i++) {
+	        for (i = 0; i < last_index_process; i++) {
 	            printk(KERN_INFO "PID %d = %d", processes[i], counts[i]);
             }
 		    printk(KERN_INFO "------- END -");
 	    }
     }*/
 
-    return original_write(x, y, size);
+    return original_write(fd, bytes, size);
 }
 
 static int __init onload(void) {
@@ -281,7 +267,7 @@ static int __init onload(void) {
   
     kfree(kernel_version);
   
-    for (i = 0; i < MAX_ARRAY_LENGTH; i++) {
+    for (i = 0; i < MAX_PROCESS_COUNT; i++) {
         processes[i] = -1;
         counts[i] = 0;
     }
