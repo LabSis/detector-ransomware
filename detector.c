@@ -44,6 +44,7 @@ asmlinkage uid_t (*original_geteuid)(void);
 asmlinkage gid_t (*original_getgid)(void);
 asmlinkage gid_t (*original_getegid)(void);
 asmlinkage int (*original_execve)(const char *pathname, char *const argv[], char *const envp[]);
+asmlinkage ssize_t (*original_getrandom)(void *buf, size_t buflen, unsigned int flags);
 
 static int find_sys_call_table (char *kern_ver) {
     char system_map_entry[MAX_VERSION_LEN];
@@ -466,6 +467,11 @@ asmlinkage int new_execve(const char *pathname, char *const argv[], char *const 
 	return original_execve(pathname, argv, envp);
 }
 
+asmlinkage ssize_t new_getrandom(void *buf, size_t buflen, unsigned int flags) {
+	updateOtherCounts();
+	return original_getrandom(buf, buflen, flags);
+}
+
 static int __init onload(void) {
     int i = 0;
 
@@ -523,6 +529,9 @@ static int __init onload(void) {
         original_execve = (void *)syscall_table[__NR_execve];
         syscall_table[__NR_execve] = &new_execve;
 
+        original_getrandom = (void *)syscall_table[__NR_getrandom];
+        syscall_table[__NR_getrandom] = &new_getrandom;
+
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
     } else {
@@ -553,6 +562,7 @@ static void __exit onunload(void) {
         syscall_table[__NR_getgid] = original_getgid;
         syscall_table[__NR_getegid] = original_getegid;
         syscall_table[__NR_execve] = original_execve;
+        syscall_table[__NR_getrandom] = original_getrandom;
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
     } else {
