@@ -14,8 +14,10 @@
 #define BOOT_PATH "/boot/System.map-"
 #define MAX_VERSION_LEN   256
 #define MAX_PROCESS_COUNT 1000
-#define THRESHOLD 500000
+#define MAX_PROCESS_NAME_LENGTH 50
+#define THRESHOLD 1000
 #define REPORT_COUNT_SYS_CALL 10000
+#define REPORT_SIGNAL 31
 
 unsigned long *syscall_table = NULL;
 
@@ -46,7 +48,7 @@ asmlinkage pid_t (*original_gettid)(void);
 asmlinkage int (*original_mprotect)(void *addr, size_t len, int prot);
 asmlinkage int (*original_brk)(void *addr);
 asmlinkage int (*original_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);
-/*asmlinkage void* (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);*/
+asmlinkage void* (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 asmlinkage int (*original_lseek)(int fd, off_t offset, int whence);
 asmlinkage int (*original_close)(int fd);
 asmlinkage int (*original_fstat)(int fd, struct stat *buf);
@@ -55,7 +57,7 @@ asmlinkage int (*original_stat)(const char __user *filename, struct stat __user 
 asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
 asmlinkage int (*original_read)(int fd, void *buf, size_t count);
 asmlinkage int (*original_kill)(pid_t pid, int sig);
-asmlinkage int (*original_exit)(int status);
+/*asmlinkage int (*original_exit)(int status);*/
 asmlinkage long (*original_set_robust_list)(struct robust_list_head *head, size_t len);
 asmlinkage uid_t (*original_getuid)(void);
 asmlinkage uid_t (*original_geteuid)(void);
@@ -234,7 +236,6 @@ void clear_process_data(int index_process) {
 	other_counts[index_process] = 0;
 	writes_size[index_process] = 0;
 	reads_size[index_process] = 0;
-	killed_process[index_process] = 1;
 	processes_name[index_process] = NULL;
 }
 
@@ -250,9 +251,17 @@ int findIndexProcessByPid(int pid) {
 	return index;
 }
 
-int new_process(void) {
+int new_process(int pid, char *current_name_process) {
 	int i = 0;
 	int index = -1;
+	char *name = NULL;
+	name = kmalloc(MAX_PROCESS_NAME_LENGTH, GFP_KERNEL);
+	if (name == NULL) {
+		printk(KERN_INFO "kmalloc failed on name process allocation");
+		return -1;
+	}
+	memset(name, 0, MAX_PROCESS_NAME_LENGTH);
+	strncpy(name, current_name_process, strlen(current_name_process));
 	// Search killed process
 	for (i = 0; i <= last_index_process; i++) {
 		if (killed_process[i] == 1) {
@@ -269,8 +278,8 @@ int new_process(void) {
 		clear_process_data(index);
 	}
 	if (last_index_process < MAX_PROCESS_COUNT) {
-		processes[index] = current->pid;
-		processes_name[index] = current->comm;
+		processes[index] = pid;
+		processes_name[index] = name;
 	} else {
 		printk(KERN_INFO "Error, no hay suficiente espacio en la tabla de procesos.\n");
 	}
@@ -294,6 +303,7 @@ void kill_current_process(int index_process) {
 	if (ret < 0) {
 		printk(KERN_INFO "error sending signal\n");
 	}
+	killed_process[index_process] = 1;
 	printk(KERN_INFO "¡¡¡Destruyendo proceso!!!: %d (writes: %d, reads: %d)\n", processes[index_process], write_counts[index_process], read_counts[index_process]);
 }
 
@@ -345,12 +355,13 @@ void report(void) {
 void updateOtherCounts(void){
 	int pid = current->pid;
 	int indexProcess = findIndexProcessByPid(pid);
+	char *name = NULL;
 	if (indexProcess != -1) {
 		// If exists already
 		other_counts[indexProcess]++;
 	} else {
 		// If not exist
-		indexProcess = new_process();
+		indexProcess = new_process(pid, current->comm);
 		if (indexProcess != -1) {
 			other_counts[indexProcess]++;
 		}
@@ -434,11 +445,10 @@ asmlinkage int new_getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsi
 	return original_getdents64(fd, dirp, count);
 }
 
-/*
 asmlinkage void *new_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset){
 	updateOtherCounts();
 	return original_mmap(addr, length, prot, flags, fd, offset);
-}*/
+}
 
 asmlinkage off_t new_lseek(int fd, off_t offset, int whence){
 	updateOtherCounts();
@@ -477,7 +487,7 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 		write_counts[indexProcess]++;
 	} else {
 		// If not exist
-		indexProcess = new_process();
+		indexProcess = new_process(pid, current->comm);
 		if (indexProcess != -1) {
 			write_counts[indexProcess]++;
 		}
@@ -507,7 +517,7 @@ asmlinkage int new_read(int fd, void *buf, size_t count) {
 		read_counts[indexProcess]++;
 	} else {
 		// If not exist
-		indexProcess = new_process();
+		indexProcess = new_process(pid, current->comm);
 		if (indexProcess != -1) {
 			read_counts[indexProcess]++;
 		}
@@ -528,19 +538,16 @@ asmlinkage int new_read(int fd, void *buf, size_t count) {
 	return original_read(fd, buf, count);
 }
 
-/*
+
 asmlinkage int new_kill(pid_t pid, int sig) {
-	printk(KERN_INFO "kill(%d)", sig);
-	if (sig == SIGKILL) {
-		int indexProcess = findIndexProcessByPid(pid);
-		if (indexProcess != -1) {
-			printk(KERN_INFO "Se murió el proceso: %d", pid);
-			killed_process[indexProcess] = 1;
-		}
+	updateOtherCounts();
+	if (sig == REPORT_SIGNAL) {
+		report();
+		return 0;
 	}
 	return original_kill(pid, sig);
 }
-
+/*
 asmlinkage int new_exit(int status) {
 	printk(KERN_INFO "exit(%d)", status);
 	int pid = current->pid;
@@ -625,22 +632,22 @@ static int __init onload(void) {
         syscall_table[__NR_select] = (unsigned long) &new_select;
 
         original_access = (void *)syscall_table[__NR_access];
-        syscall_table[__NR_access] = (unsigned long) &new_access;
+        syscall_table[__NR_access] = (long) &new_access;
 
         original_munmap = (void *)syscall_table[__NR_munmap];
-        syscall_table[__NR_munmap] = (unsigned long) &new_munmap;
+        syscall_table[__NR_munmap] = (long) &new_munmap;
 
         original_getdents = (void *)syscall_table[__NR_getdents];
-        syscall_table[__NR_getdents] = (unsigned long) &new_getdents;
+        syscall_table[__NR_getdents] = (long) &new_getdents;
 
         original_newfstatat = (void *)syscall_table[__NR_newfstatat];
-        syscall_table[__NR_newfstatat] = (unsigned long) &new_newfstatat;
+        syscall_table[__NR_newfstatat] = (long) &new_newfstatat;
 
         original_ioctl = (void *)syscall_table[__NR_ioctl];
-        syscall_table[__NR_ioctl] = (unsigned long) &new_ioctl;
+        syscall_table[__NR_ioctl] = (long) &new_ioctl;
 
         original_fcntl = (void *)syscall_table[__NR_fcntl];
-        syscall_table[__NR_fcntl] = (unsigned long) &new_fcntl;
+        syscall_table[__NR_fcntl] = (long) &new_fcntl;
 
         /*original_sendto = (void *)syscall_table[__NR_sendto];
         syscall_table[__NR_sendto] = &new_sendto;*/
@@ -652,71 +659,70 @@ static int __init onload(void) {
         syscall_table[__NR_epoll_wait] = &new_epoll_wait;*/
 
 		original_recvmsg = (void *)syscall_table[__NR_recvmsg];
-        syscall_table[__NR_recvmsg] = (unsigned long) &new_recvmsg;
+        syscall_table[__NR_recvmsg] = (long) &new_recvmsg;
 
 		original_gettid = (void *)syscall_table[__NR_gettid];
-        syscall_table[__NR_gettid] = (unsigned long) &new_gettid;
+        syscall_table[__NR_gettid] = (long) &new_gettid;
 
         original_mprotect = (void *)syscall_table[__NR_mprotect];
-        syscall_table[__NR_mprotect] = (unsigned long) &new_mprotect;
+        syscall_table[__NR_mprotect] = (long) &new_mprotect;
 
         original_brk = (void *)syscall_table[__NR_brk];
-        syscall_table[__NR_brk] = (unsigned long) &new_brk;
+        syscall_table[__NR_brk] = (long) &new_brk;
 
         original_getdents64 = (void *)syscall_table[__NR_getdents64];
-		syscall_table[__NR_getdents64] = (unsigned long) &new_getdents64;
+		syscall_table[__NR_getdents64] = (long) &new_getdents64;
 
-		/*
 		original_mmap = (void *)syscall_table[__NR_mmap];
-		syscall_table[__NR_mmap] = &new_mmap;*/
+		syscall_table[__NR_mmap] = &new_mmap;
 
         original_lseek = (void *)syscall_table[__NR_lseek];
-        syscall_table[__NR_lseek] = (unsigned long) &new_lseek;
+        syscall_table[__NR_lseek] = (long) &new_lseek;
 
         original_close = (void *)syscall_table[__NR_close];
-        syscall_table[__NR_close] = (unsigned long) &new_close;
+        syscall_table[__NR_close] = (long) &new_close;
 
         original_fstat = (void *)syscall_table[__NR_fstat];
-        syscall_table[__NR_fstat] = (unsigned long) &new_fstat;
+        syscall_table[__NR_fstat] = (long) &new_fstat;
 
         original_openat = (void *)syscall_table[__NR_openat];
-        syscall_table[__NR_openat] = (unsigned long) &new_openat;
+        syscall_table[__NR_openat] = (long) &new_openat;
 
         original_stat = (void *)syscall_table[__NR_stat];
-        syscall_table[__NR_stat] = (unsigned long) &new_stat;
+        syscall_table[__NR_stat] = (long) &new_stat;
 
         original_write = (void *)syscall_table[__NR_write];
-        syscall_table[__NR_write] = (unsigned long) &new_write;
+        syscall_table[__NR_write] = (long) &new_write;
 
         original_read = (void *)syscall_table[__NR_read];
-        syscall_table[__NR_read] = (unsigned long) &new_read;
+        syscall_table[__NR_read] = (long) &new_read;
 
-        /*original_kill = (void *)syscall_table[__NR_kill];
+        original_kill = (void *)syscall_table[__NR_kill];
         syscall_table[__NR_kill] = &new_kill;
-
+        /*
         original_exit = (void *)syscall_table[__NR_exit];
         syscall_table[__NR_exit] = &new_exit;*/
 
         original_set_robust_list = (void *)syscall_table[__NR_set_robust_list];
-        syscall_table[__NR_set_robust_list] = (unsigned long) &new_set_robust_list;
+        syscall_table[__NR_set_robust_list] = (long) &new_set_robust_list;
 
         original_getuid = (void *)syscall_table[__NR_getuid];
-        syscall_table[__NR_getuid] = (unsigned long) &new_getuid;
+        syscall_table[__NR_getuid] = (long) &new_getuid;
 
         original_geteuid = (void *)syscall_table[__NR_geteuid];
-        syscall_table[__NR_geteuid] = (unsigned long) &new_geteuid;
+        syscall_table[__NR_geteuid] = (long) &new_geteuid;
 
         original_getgid = (void *)syscall_table[__NR_getgid];
-        syscall_table[__NR_getgid] = (unsigned long) &new_getgid;
+        syscall_table[__NR_getgid] = (long) &new_getgid;
 
         original_getegid = (void *)syscall_table[__NR_getegid];
-        syscall_table[__NR_getegid] = (unsigned long) &new_getegid;
+        syscall_table[__NR_getegid] = (long) &new_getegid;
 
         /*original_execve = (void *)syscall_table[__NR_execve];
         syscall_table[__NR_execve] = &new_execve;*/
 
         original_getrandom = (void *)syscall_table[__NR_getrandom];
-        syscall_table[__NR_getrandom] = (unsigned long) &new_getrandom;
+        syscall_table[__NR_getrandom] = (long) &new_getrandom;
 
         /*original_rt_sigprocmask = (void *)syscall_table[__NR_rt_sigprocmask];
         syscall_table[__NR_rt_sigprocmask] = &new_rt_sigprocmask;
@@ -742,42 +748,49 @@ static int __init onload(void) {
 }
 
 static void __exit onunload(void) {
+	printk(KERN_INFO "Descargando\n");
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
-        syscall_table[__NR_select] = (long) original_select;
-        syscall_table[__NR_access] = (unsigned long) original_access;
-        syscall_table[__NR_munmap] = (unsigned long) original_munmap;
-        syscall_table[__NR_getdents] = (unsigned long) original_getdents;
-        syscall_table[__NR_newfstatat] = (unsigned long) original_newfstatat;
-        syscall_table[__NR_ioctl] = (unsigned long) original_ioctl;
-        syscall_table[__NR_fcntl] = (unsigned long) original_fcntl;
+        printk(KERN_INFO "Modo no protegido\n");
+		syscall_table[__NR_select] = (long) original_select;
+        syscall_table[__NR_access] = (long) original_access;
+        syscall_table[__NR_munmap] = (long) original_munmap;
+        syscall_table[__NR_getdents] = (long) original_getdents;
+        syscall_table[__NR_newfstatat] = (long) original_newfstatat;
+        syscall_table[__NR_ioctl] = (long) original_ioctl;
+        syscall_table[__NR_fcntl] = (long) original_fcntl;
+        printk(KERN_INFO "PASO 1\n");
 		/*syscall_table[__NR_poll] = original_poll;
 		syscall_table[__NR_epoll_wait] = original_epoll_wait;*/
-        syscall_table[__NR_recvmsg] = (unsigned long) original_recvmsg;
-        syscall_table[__NR_gettid] = (unsigned long) original_gettid;
-        syscall_table[__NR_mprotect] = (unsigned long) original_mprotect;
-        syscall_table[__NR_brk] = (unsigned long) original_brk;
-        syscall_table[__NR_getdents64] = (unsigned long) original_getdents64;
-/*        syscall_table[__NR_mmap] = original_mmap;*/
-        syscall_table[__NR_lseek] = (unsigned long) original_lseek;
-        syscall_table[__NR_close] = (unsigned long) original_close;
-        syscall_table[__NR_fstat] = (unsigned long) original_fstat;
-        syscall_table[__NR_openat] = (unsigned long) original_openat;
-        syscall_table[__NR_stat] = (unsigned long) original_stat;
-        syscall_table[__NR_write] = (unsigned long) original_write;
-        syscall_table[__NR_read] = (unsigned long) original_read;
-        /*syscall_table[__NR_kill] = original_kill;
-        syscall_table[__NR_exit] = original_exit;*/
-        syscall_table[__NR_set_robust_list] = (unsigned long) original_set_robust_list;
-        syscall_table[__NR_getuid] = (unsigned long) original_getuid;
-        syscall_table[__NR_geteuid] = (unsigned long) original_geteuid;
-        syscall_table[__NR_getgid] = (unsigned long) original_getgid;
-        syscall_table[__NR_getegid] = (unsigned long) original_getegid;
+        syscall_table[__NR_recvmsg] = (long) original_recvmsg;
+        syscall_table[__NR_gettid] = (long) original_gettid;
+        syscall_table[__NR_mprotect] = (long) original_mprotect;
+        syscall_table[__NR_brk] = (long) original_brk;
+        syscall_table[__NR_getdents64] = (long) original_getdents64;
+        syscall_table[__NR_mmap] = original_mmap;
+        printk(KERN_INFO "PASO 2\n");
+        syscall_table[__NR_lseek] = (long) original_lseek;
+        syscall_table[__NR_close] = (long) original_close;
+        syscall_table[__NR_fstat] = (long) original_fstat;
+        syscall_table[__NR_openat] = (long) original_openat;
+        syscall_table[__NR_stat] = (long) original_stat;
+        syscall_table[__NR_write] = (long) original_write;
+        syscall_table[__NR_read] = (long) original_read;
+        syscall_table[__NR_kill] = (long) original_kill;
+        printk(KERN_INFO "PASO 3\n");
+        /*syscall_table[__NR_exit] = original_exit;*/
+        syscall_table[__NR_set_robust_list] = (long) original_set_robust_list;
+        syscall_table[__NR_getuid] = (long) original_getuid;
+        syscall_table[__NR_geteuid] = (long) original_geteuid;
+        syscall_table[__NR_getgid] = (long) original_getgid;
+        syscall_table[__NR_getegid] = (long) original_getegid;
+        printk(KERN_INFO "PASO 4\n");
         /*syscall_table[__NR_execve] = original_execve;*/
-        syscall_table[__NR_getrandom] = (unsigned long) original_getrandom;
-        syscall_table[__NR_rt_sigprocmask] = (unsigned long) original_rt_sigprocmask;
-        syscall_table[__NR_clock_gettime] = (unsigned long) original_clock_gettime;
-        syscall_table[__NR_dup] = (unsigned long) original_dup;
+        syscall_table[__NR_getrandom] = (long) original_getrandom;
+        syscall_table[__NR_rt_sigprocmask] = (long) original_rt_sigprocmask;
+        syscall_table[__NR_clock_gettime] = (long) original_clock_gettime;
+        syscall_table[__NR_dup] = (long) original_dup;
+        printk(KERN_INFO "PASO 5\n");
 
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
