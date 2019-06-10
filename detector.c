@@ -32,8 +32,8 @@ int last_index_process = -1;
 long total_sys_call = 0;
 
 asmlinkage int (*original_mprotect)(void *addr, size_t len, int prot);
-/*asmlinkage int (*original_brk)(void *addr);
-asmlinkage int (*original_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);*/
+asmlinkage int (*original_brk)(void *addr);
+asmlinkage int (*original_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);
 asmlinkage void* (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 asmlinkage int (*original_lseek)(int fd, off_t offset, int whence);
 asmlinkage int (*original_close)(int fd);
@@ -51,9 +51,9 @@ asmlinkage gid_t (*original_getgid)(void);
 asmlinkage gid_t (*original_getegid)(void);
 /*asmlinkage int (*original_execve)(const char *pathname, char *const argv[], char *const envp[]);*/
 asmlinkage ssize_t (*original_getrandom)(void *buf, size_t buflen, unsigned int flags);
-/*asmlinkage int (*original_rt_sigprocmask)(int how, const sigset_t *set, sigset_t *oldset);
+asmlinkage int (*original_rt_sigprocmask)(int how, const sigset_t *set, sigset_t *oldset);
 asmlinkage int (*original_clock_gettime)(clockid_t clk_id, struct timespec *tp);
-asmlinkage int (*original_dup)(int oldfd);*/
+asmlinkage int (*original_dup)(int oldfd);
 
 
 static int find_sys_call_table (char *kern_ver) {
@@ -340,7 +340,7 @@ asmlinkage int new_mprotect(void *addr, size_t len, int prot){
 	return original_mprotect(addr, len, prot);
 }
 
-/*asmlinkage int new_brk(void *addr){
+asmlinkage int new_brk(void *addr){
 	updateOtherCounts();
 	return original_brk(addr);
 }
@@ -348,7 +348,7 @@ asmlinkage int new_mprotect(void *addr, size_t len, int prot){
 asmlinkage int new_getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count){
 	updateOtherCounts();
 	return original_getdents64(fd, dirp, count);
-}*/
+}
 
 asmlinkage void *new_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset){
 	updateOtherCounts();
@@ -512,7 +512,7 @@ asmlinkage ssize_t new_getrandom(void *buf, size_t buflen, unsigned int flags) {
 	return original_getrandom(buf, buflen, flags);
 }
 
-/*asmlinkage int new_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
+asmlinkage int new_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
 	updateOtherCounts();
 	return original_rt_sigprocmask(how, set, oldset);
 }
@@ -525,7 +525,7 @@ asmlinkage int new_clock_gettime(clockid_t clk_id, struct timespec *tp) {
 asmlinkage int new_dup(int oldfd) {
 	updateOtherCounts();
 	return original_dup(oldfd);
-}*/
+}
 
 
 static int __init onload(void) {
@@ -549,11 +549,11 @@ static int __init onload(void) {
         original_mprotect = (void *)syscall_table[__NR_mprotect];
         syscall_table[__NR_mprotect] = &new_mprotect;
 
-        /*original_brk = (void *)syscall_table[__NR_brk];
+        original_brk = (void *)syscall_table[__NR_brk];
         syscall_table[__NR_brk] = &new_brk;
 
         original_getdents64 = (void *)syscall_table[__NR_getdents64];
-		syscall_table[__NR_getdents64] = &new_getdents64;*/
+		syscall_table[__NR_getdents64] = &new_getdents64;
 
 		original_mmap = (void *)syscall_table[__NR_mmap];
 		syscall_table[__NR_mmap] = &new_mmap;
@@ -633,8 +633,8 @@ static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
         syscall_table[__NR_mprotect] = original_mprotect;
-        /*syscall_table[__NR_brk] = original_brk;
-        syscall_table[__NR_getdents64] = original_getdents64;*/
+        syscall_table[__NR_brk] = original_brk;
+        syscall_table[__NR_getdents64] = original_getdents64;
         syscall_table[__NR_mmap] = original_mmap;
         syscall_table[__NR_lseek] = original_lseek;
         syscall_table[__NR_close] = original_close;
@@ -652,9 +652,9 @@ static void __exit onunload(void) {
         syscall_table[__NR_getegid] = original_getegid;
         /*syscall_table[__NR_execve] = original_execve;*/
         syscall_table[__NR_getrandom] = original_getrandom;
-        /*syscall_table[__NR_rt_sigprocmask] = original_rt_sigprocmask;
+        syscall_table[__NR_rt_sigprocmask] = original_rt_sigprocmask;
         syscall_table[__NR_clock_gettime] = original_clock_gettime;
-        syscall_table[__NR_dup] = original_dup;*/
+        syscall_table[__NR_dup] = original_dup;
 
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
