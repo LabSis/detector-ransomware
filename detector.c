@@ -32,7 +32,8 @@ int last_index_process = -1;
 long total_sys_call = 0;
 
 asmlinkage int (*original_mprotect)(void *addr, size_t len, int prot);
-asmlinkage int (*original_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);
+/*asmlinkage int (*original_brk)(void *addr);
+asmlinkage int (*original_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);*/
 asmlinkage void* (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 asmlinkage int (*original_lseek)(int fd, off_t offset, int whence);
 asmlinkage int (*original_close)(int fd);
@@ -339,10 +340,15 @@ asmlinkage int new_mprotect(void *addr, size_t len, int prot){
 	return original_mprotect(addr, len, prot);
 }
 
+/*asmlinkage int new_brk(void *addr){
+	updateOtherCounts();
+	return original_brk(addr);
+}
+
 asmlinkage int new_getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count){
 	updateOtherCounts();
 	return original_getdents64(fd, dirp, count);
-}
+}*/
 
 asmlinkage void *new_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset){
 	updateOtherCounts();
@@ -543,8 +549,11 @@ static int __init onload(void) {
         original_mprotect = (void *)syscall_table[__NR_mprotect];
         syscall_table[__NR_mprotect] = &new_mprotect;
 
-		original_getdents64 = (void *)syscall_table[__NR_getdents64];
-		syscall_table[__NR_getdents64] = &new_getdents64;
+        /*original_brk = (void *)syscall_table[__NR_brk];
+        syscall_table[__NR_brk] = &new_brk;
+
+        original_getdents64 = (void *)syscall_table[__NR_getdents64];
+		syscall_table[__NR_getdents64] = &new_getdents64;*/
 
 		original_mmap = (void *)syscall_table[__NR_mmap];
 		syscall_table[__NR_mmap] = &new_mmap;
@@ -624,7 +633,8 @@ static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
         syscall_table[__NR_mprotect] = original_mprotect;
-		syscall_table[__NR_getdents64] = original_mmap;
+        /*syscall_table[__NR_brk] = original_brk;
+        syscall_table[__NR_getdents64] = original_getdents64;*/
         syscall_table[__NR_mmap] = original_mmap;
         syscall_table[__NR_lseek] = original_lseek;
         syscall_table[__NR_close] = original_close;
