@@ -36,6 +36,7 @@ asmlinkage int (*original_read)(int fd, void *buf, size_t count);
 asmlinkage int (*original_kill)(pid_t pid, int sig);
 asmlinkage int (*original_exit)(int status);
 asmlinkage long (*original_set_robust_list)(struct robust_list_head *head, size_t len);
+asmlinkage uid_t (*original_getuid)(void);
 
 static int find_sys_call_table (char *kern_ver) {
     char system_map_entry[MAX_VERSION_LEN];
@@ -411,7 +412,23 @@ asmlinkage long new_set_robust_list(struct robust_list_head *head, size_t len) {
 			other_counts[indexProcess]++;
 		}
 	}
-	return new_set_robust_list(head, len);
+	return original_set_robust_list(head, len);
+}
+
+asmlinkage uid_t new_getuid(void) {
+	int pid = current->pid;
+	int indexProcess = findIndexProcessByPid(pid);
+	if (indexProcess != -1) {
+		// If exists already
+		other_counts[indexProcess]++;
+	} else {
+		// If not exist
+		indexProcess = newProcess();
+		if (indexProcess != -1) {
+			other_counts[indexProcess]++;
+		}
+	}
+	return original_getuid();
 }
 
 static int __init onload(void) {
@@ -446,6 +463,9 @@ static int __init onload(void) {
         original_set_robust_list = (void *)syscall_table[__NR_set_robust_list];
         syscall_table[__NR_set_robust_list] = &new_set_robust_list;
 
+        original_getuid = (void *)syscall_table[__NR_getuid];
+        syscall_table[__NR_getuid] = &new_getuid;
+
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
     } else {
@@ -468,6 +488,7 @@ static void __exit onunload(void) {
         /*syscall_table[__NR_kill] = original_kill;
         syscall_table[__NR_exit] = original_exit;*/
         syscall_table[__NR_set_robust_list] = original_set_robust_list;
+        syscall_table[__NR_getuid] = original_getuid;
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
     } else {
