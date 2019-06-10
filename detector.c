@@ -768,3 +768,8 @@ static void __exit onunload(void) {
 
 module_init(onload);
 module_exit(onunload);
+
+MODULE_LICENSE("Dual BSD/GPL");
+MODULE_AUTHOR("UTN FRC LabSis");
+MODULE_DESCRIPTION("Detector ransomware");
+
