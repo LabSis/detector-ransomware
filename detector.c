@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage ssize_t (*original_recvmsg)(int sockfd, struct msghdr *msg, int flags);
 asmlinkage pid_t (*original_gettid)(void);
 asmlinkage int (*original_mprotect)(void *addr, size_t len, int prot);
 asmlinkage int (*original_brk)(void *addr);
@@ -339,6 +340,11 @@ void updateOtherCounts(void){
 	}
 }
 
+asmlinkage ssize_t new_recvmsg(int sockfd, struct msghdr *msg, int flags){
+	updateOtherCounts();
+	return original_recvmsg(sockfd, msg, flags);
+}
+
 asmlinkage pid_t new_gettid(void){
 	updateOtherCounts();
 	return original_gettid();
@@ -555,6 +561,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+		original_recvmsg = (void *)syscall_table[__NR_recvmsg];
+        syscall_table[__NR_recvmsg] = &new_recvmsg;
+
 		original_gettid = (void *)syscall_table[__NR_gettid];
         syscall_table[__NR_gettid] = &new_gettid;
 
@@ -644,6 +653,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+        syscall_table[__NR_recvmsg] = original_recvmsg;
         syscall_table[__NR_gettid] = original_gettid;
         syscall_table[__NR_mprotect] = original_mprotect;
         syscall_table[__NR_brk] = original_brk;
