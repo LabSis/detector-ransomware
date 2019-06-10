@@ -225,6 +225,16 @@ char *acquire_kernel_version (char *buf) {
     return kernel_version;
 }
 
+void clear_process_data(int index_process) {
+	write_counts[index_process] = 0;
+	read_counts[index_process] = 0;
+	other_counts[index_process] = 0;
+	writes_size[index_process] = 0;
+	reads_size[index_process] = 0;
+	killed_process[index_process] = 1;
+	processes_name[index_process] = NULL;
+}
+
 int findIndexProcessByPid(int pid) {
 	int i = 0;
 	int index = -1;
@@ -252,6 +262,8 @@ int new_process(void) {
 	if (index == -1) {
 		last_index_process++;
 		index = last_index_process;
+	} else {
+		clear_process_data(index);
 	}
 	if (last_index_process < MAX_PROCESS_COUNT) {
 		processes[index] = current->pid;
@@ -270,16 +282,6 @@ int be_should_kill_it(int index_process) {
 			read_counts[index_process] > other_counts[index_process] * 2;
 }
 
-void clear_process_data(int index_process) {
-	write_counts[index_process] = 0;
-	read_counts[index_process] = 0;
-	other_counts[index_process] = 0;
-	writes_size[index_process] = 0;
-	reads_size[index_process] = 0;
-	killed_process[index_process] = 1;
-	processes_name[index_process] = NULL;
-}
-
 void kill_current_process(int index_process) {
 	int signum = SIGKILL;
 	struct siginfo info;
@@ -290,7 +292,6 @@ void kill_current_process(int index_process) {
 		printk(KERN_INFO "error sending signal\n");
 	}
 	printk(KERN_INFO "¡¡¡Destruyendo proceso!!!: %d (writes: %d, reads: %d)\n", processes[index_process], write_counts[index_process], read_counts[index_process]);
-	clear_process_data(index_process);
 }
 
 void report(void) {
@@ -311,7 +312,6 @@ void report(void) {
 
 			if (is_alive == 0) {
 				killed_process[i] = 1;
-				clear_process_data(i);
 			}
 		}
 	}
