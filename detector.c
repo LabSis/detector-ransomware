@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage int (*original_munmap)(void *addr, size_t length);
 asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent *dirp, unsigned int count);
 asmlinkage int (*original_newfstatat)(int dirfd, const char *pathname, struct stat *statbuf, int flags);
 asmlinkage int (*original_ioctl)(int fd, unsigned long request, char *argv);
@@ -354,6 +355,11 @@ void updateOtherCounts(void){
 	}
 }
 
+asmlinkage int new_munmap(void *addr, size_t length){
+	updateOtherCounts();
+	return original_munmap(addr, length);
+}
+
 asmlinkage int new_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count){
 	updateOtherCounts();
 	return original_getdents(fd, dirp, count);
@@ -603,6 +609,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        original_munmap = (void *)syscall_table[__NR_munmap];
+        syscall_table[__NR_munmap] = (long) &new_munmap;
+
         original_getdents = (void *)syscall_table[__NR_getdents];
         syscall_table[__NR_getdents] = (long) &new_getdents;
 
@@ -717,6 +726,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+        syscall_table[__NR_munmap] = (long) original_munmap;
         syscall_table[__NR_getdents] = (long) original_getdents;
         syscall_table[__NR_newfstatat] = (long) original_newfstatat;
         syscall_table[__NR_ioctl] = (long) original_ioctl;
