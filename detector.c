@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage int (*original_stat)(const char __user *filename, struct stat __user *statbuf);
 asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
 asmlinkage int (*original_read)(int fd, void *buf, size_t count);
 asmlinkage int (*original_kill)(pid_t pid, int sig);
@@ -301,6 +302,23 @@ void report(void) {
 	printk(KERN_INFO "(Total, no muertos, muertos) = (%d, %d %d)", total_processes, not_dead_processes, dead_processes);
 }
 
+asmlinkage int new_stat (const char __user * filename, struct stat __user * statbuf) {
+	int pid = current->pid;
+	int indexProcess = findIndexProcessByPid(pid);
+	if (indexProcess != -1) {
+		// If exists already
+		other_counts[indexProcess]++;
+	} else {
+		// If not exist
+		indexProcess = newProcess();
+		if (indexProcess != -1) {
+			other_counts[indexProcess]++;
+		}
+	}
+
+	return original_stat(filename, statbuf);
+}
+
 asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size) {
 	/*unsigned long rax_value;
 	asm("" : "=a"(rax_value));
@@ -431,6 +449,10 @@ static int __init onload(void) {
 
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+
+        original_stat = (void *)syscall_table[__NR_stat];
+        syscall_table[__NR_stat] = &new_stat;
+
         original_write = (void *)syscall_table[__NR_write];
         syscall_table[__NR_write] = &new_write;
 
@@ -463,6 +485,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+        syscall_table[__NR_stat] = original_stat;
         syscall_table[__NR_write] = original_write;
         syscall_table[__NR_read] = original_read;
         /*syscall_table[__NR_kill] = original_kill;
