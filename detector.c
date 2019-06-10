@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage int (*original_access)(const char *pathname, int mode);
 asmlinkage int (*original_munmap)(void *addr, size_t length);
 asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent *dirp, unsigned int count);
 asmlinkage int (*original_newfstatat)(int dirfd, const char *pathname, struct stat *statbuf, int flags);
@@ -355,6 +356,11 @@ void updateOtherCounts(void){
 	}
 }
 
+asmlinkage int new_access(const char *pathname, int mode){
+	updateOtherCounts();
+	return original_access(pathname, mode);
+}
+
 asmlinkage int new_munmap(void *addr, size_t length){
 	updateOtherCounts();
 	return original_munmap(addr, length);
@@ -609,20 +615,23 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        original_access = (void *)syscall_table[__NR_access];
+        syscall_table[__NR_access] = (unsigned long) &new_access;
+
         original_munmap = (void *)syscall_table[__NR_munmap];
-        syscall_table[__NR_munmap] = (long) &new_munmap;
+        syscall_table[__NR_munmap] = (unsigned long) &new_munmap;
 
         original_getdents = (void *)syscall_table[__NR_getdents];
-        syscall_table[__NR_getdents] = (long) &new_getdents;
+        syscall_table[__NR_getdents] = (unsigned long) &new_getdents;
 
         original_newfstatat = (void *)syscall_table[__NR_newfstatat];
-        syscall_table[__NR_newfstatat] = (long) &new_newfstatat;
+        syscall_table[__NR_newfstatat] = (unsigned long) &new_newfstatat;
 
         original_ioctl = (void *)syscall_table[__NR_ioctl];
-        syscall_table[__NR_ioctl] = (long) &new_ioctl;
+        syscall_table[__NR_ioctl] = (unsigned long) &new_ioctl;
 
         original_fcntl = (void *)syscall_table[__NR_fcntl];
-        syscall_table[__NR_fcntl] = (long) &new_fcntl;
+        syscall_table[__NR_fcntl] = (unsigned long) &new_fcntl;
 
         /*original_sendto = (void *)syscall_table[__NR_sendto];
         syscall_table[__NR_sendto] = &new_sendto;*/
@@ -634,44 +643,44 @@ static int __init onload(void) {
         syscall_table[__NR_epoll_wait] = &new_epoll_wait;*/
 
 		original_recvmsg = (void *)syscall_table[__NR_recvmsg];
-        syscall_table[__NR_recvmsg] = (long) &new_recvmsg;
+        syscall_table[__NR_recvmsg] = (unsigned long) &new_recvmsg;
 
 		original_gettid = (void *)syscall_table[__NR_gettid];
-        syscall_table[__NR_gettid] = (long) &new_gettid;
+        syscall_table[__NR_gettid] = (unsigned long) &new_gettid;
 
         original_mprotect = (void *)syscall_table[__NR_mprotect];
-        syscall_table[__NR_mprotect] = (long) &new_mprotect;
+        syscall_table[__NR_mprotect] = (unsigned long) &new_mprotect;
 
         original_brk = (void *)syscall_table[__NR_brk];
-        syscall_table[__NR_brk] = (long) &new_brk;
+        syscall_table[__NR_brk] = (unsigned long) &new_brk;
 
         original_getdents64 = (void *)syscall_table[__NR_getdents64];
-		syscall_table[__NR_getdents64] = (long) &new_getdents64;
+		syscall_table[__NR_getdents64] = (unsigned long) &new_getdents64;
 
 		/*
 		original_mmap = (void *)syscall_table[__NR_mmap];
 		syscall_table[__NR_mmap] = &new_mmap;*/
 
         original_lseek = (void *)syscall_table[__NR_lseek];
-        syscall_table[__NR_lseek] = (long) &new_lseek;
+        syscall_table[__NR_lseek] = (unsigned long) &new_lseek;
 
         original_close = (void *)syscall_table[__NR_close];
-        syscall_table[__NR_close] = (long) &new_close;
+        syscall_table[__NR_close] = (unsigned long) &new_close;
 
         original_fstat = (void *)syscall_table[__NR_fstat];
-        syscall_table[__NR_fstat] = (long) &new_fstat;
+        syscall_table[__NR_fstat] = (unsigned long) &new_fstat;
 
         original_openat = (void *)syscall_table[__NR_openat];
-        syscall_table[__NR_openat] = (long) &new_openat;
+        syscall_table[__NR_openat] = (unsigned long) &new_openat;
 
         original_stat = (void *)syscall_table[__NR_stat];
-        syscall_table[__NR_stat] = (long) &new_stat;
+        syscall_table[__NR_stat] = (unsigned long) &new_stat;
 
         original_write = (void *)syscall_table[__NR_write];
-        syscall_table[__NR_write] = (long) &new_write;
+        syscall_table[__NR_write] = (unsigned long) &new_write;
 
         original_read = (void *)syscall_table[__NR_read];
-        syscall_table[__NR_read] = (long) &new_read;
+        syscall_table[__NR_read] = (unsigned long) &new_read;
 
         /*original_kill = (void *)syscall_table[__NR_kill];
         syscall_table[__NR_kill] = &new_kill;
@@ -680,25 +689,25 @@ static int __init onload(void) {
         syscall_table[__NR_exit] = &new_exit;*/
 
         original_set_robust_list = (void *)syscall_table[__NR_set_robust_list];
-        syscall_table[__NR_set_robust_list] = (long) &new_set_robust_list;
+        syscall_table[__NR_set_robust_list] = (unsigned long) &new_set_robust_list;
 
         original_getuid = (void *)syscall_table[__NR_getuid];
-        syscall_table[__NR_getuid] = (long) &new_getuid;
+        syscall_table[__NR_getuid] = (unsigned long) &new_getuid;
 
         original_geteuid = (void *)syscall_table[__NR_geteuid];
-        syscall_table[__NR_geteuid] = (long) &new_geteuid;
+        syscall_table[__NR_geteuid] = (unsigned long) &new_geteuid;
 
         original_getgid = (void *)syscall_table[__NR_getgid];
-        syscall_table[__NR_getgid] = (long) &new_getgid;
+        syscall_table[__NR_getgid] = (unsigned long) &new_getgid;
 
         original_getegid = (void *)syscall_table[__NR_getegid];
-        syscall_table[__NR_getegid] = (long) &new_getegid;
+        syscall_table[__NR_getegid] = (unsigned long) &new_getegid;
 
         /*original_execve = (void *)syscall_table[__NR_execve];
         syscall_table[__NR_execve] = &new_execve;*/
 
         original_getrandom = (void *)syscall_table[__NR_getrandom];
-        syscall_table[__NR_getrandom] = (long) &new_getrandom;
+        syscall_table[__NR_getrandom] = (unsigned long) &new_getrandom;
 
         /*original_rt_sigprocmask = (void *)syscall_table[__NR_rt_sigprocmask];
         syscall_table[__NR_rt_sigprocmask] = &new_rt_sigprocmask;
@@ -726,38 +735,39 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
-        syscall_table[__NR_munmap] = (long) original_munmap;
-        syscall_table[__NR_getdents] = (long) original_getdents;
-        syscall_table[__NR_newfstatat] = (long) original_newfstatat;
-        syscall_table[__NR_ioctl] = (long) original_ioctl;
-        syscall_table[__NR_fcntl] = (long) original_fcntl;
+        syscall_table[__NR_access] = (unsigned long) original_access;
+        syscall_table[__NR_munmap] = (unsigned long) original_munmap;
+        syscall_table[__NR_getdents] = (unsigned long) original_getdents;
+        syscall_table[__NR_newfstatat] = (unsigned long) original_newfstatat;
+        syscall_table[__NR_ioctl] = (unsigned long) original_ioctl;
+        syscall_table[__NR_fcntl] = (unsigned long) original_fcntl;
 		/*syscall_table[__NR_poll] = original_poll;
 		syscall_table[__NR_epoll_wait] = original_epoll_wait;*/
-        syscall_table[__NR_recvmsg] = (long) original_recvmsg;
-        syscall_table[__NR_gettid] = (long) original_gettid;
-        syscall_table[__NR_mprotect] = (long) original_mprotect;
-        syscall_table[__NR_brk] = (long) original_brk;
-        syscall_table[__NR_getdents64] = (long) original_getdents64;
+        syscall_table[__NR_recvmsg] = (unsigned long) original_recvmsg;
+        syscall_table[__NR_gettid] = (unsigned long) original_gettid;
+        syscall_table[__NR_mprotect] = (unsigned long) original_mprotect;
+        syscall_table[__NR_brk] = (unsigned long) original_brk;
+        syscall_table[__NR_getdents64] = (unsigned long) original_getdents64;
 /*        syscall_table[__NR_mmap] = original_mmap;*/
-        syscall_table[__NR_lseek] = (long) original_lseek;
-        syscall_table[__NR_close] = (long) original_close;
-        syscall_table[__NR_fstat] = (long) original_fstat;
-        syscall_table[__NR_openat] = (long) original_openat;
-        syscall_table[__NR_stat] = (long) original_stat;
-        syscall_table[__NR_write] = (long) original_write;
-        syscall_table[__NR_read] = (long) original_read;
+        syscall_table[__NR_lseek] = (unsigned long) original_lseek;
+        syscall_table[__NR_close] = (unsigned long) original_close;
+        syscall_table[__NR_fstat] = (unsigned long) original_fstat;
+        syscall_table[__NR_openat] = (unsigned long) original_openat;
+        syscall_table[__NR_stat] = (unsigned long) original_stat;
+        syscall_table[__NR_write] = (unsigned long) original_write;
+        syscall_table[__NR_read] = (unsigned long) original_read;
         /*syscall_table[__NR_kill] = original_kill;
         syscall_table[__NR_exit] = original_exit;*/
-        syscall_table[__NR_set_robust_list] = (long) original_set_robust_list;
-        syscall_table[__NR_getuid] = (long) original_getuid;
-        syscall_table[__NR_geteuid] = (long) original_geteuid;
-        syscall_table[__NR_getgid] = (long) original_getgid;
-        syscall_table[__NR_getegid] = (long) original_getegid;
+        syscall_table[__NR_set_robust_list] = (unsigned long) original_set_robust_list;
+        syscall_table[__NR_getuid] = (unsigned long) original_getuid;
+        syscall_table[__NR_geteuid] = (unsigned long) original_geteuid;
+        syscall_table[__NR_getgid] = (unsigned long) original_getgid;
+        syscall_table[__NR_getegid] = (unsigned long) original_getegid;
         /*syscall_table[__NR_execve] = original_execve;*/
-        syscall_table[__NR_getrandom] = (long) original_getrandom;
-        syscall_table[__NR_rt_sigprocmask] = (long) original_rt_sigprocmask;
-        syscall_table[__NR_clock_gettime] = (long) original_clock_gettime;
-        syscall_table[__NR_dup] = (long) original_dup;
+        syscall_table[__NR_getrandom] = (unsigned long) original_getrandom;
+        syscall_table[__NR_rt_sigprocmask] = (unsigned long) original_rt_sigprocmask;
+        syscall_table[__NR_clock_gettime] = (unsigned long) original_clock_gettime;
+        syscall_table[__NR_dup] = (unsigned long) original_dup;
 
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
