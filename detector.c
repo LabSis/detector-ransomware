@@ -14,7 +14,7 @@
 #define BOOT_PATH "/boot/System.map-"
 #define MAX_VERSION_LEN   256
 #define MAX_PROCESS_COUNT 1000
-#define THRESHOLD 500000
+#define THRESHOLD 1000
 #define REPORT_COUNT_SYS_CALL 10000
 
 unsigned long *syscall_table = NULL;
@@ -256,7 +256,10 @@ int newProcess(void) {
 }
 
 int be_should_kill_it(int index_process) {
-	return write_counts[index_process] > THRESHOLD && read_counts[index_process] > THRESHOLD;
+	return write_counts[index_process] > THRESHOLD &&
+			read_counts[index_process] > THRESHOLD &&
+			write_counts[index_process] > other_counts[index_process] * 2 &&
+			read_counts[index_process] > other_counts[index_process] * 2;
 }
 
 void kill_current_process(int index_process) {
