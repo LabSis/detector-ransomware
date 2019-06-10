@@ -24,12 +24,14 @@ int write_counts[MAX_PROCESS_COUNT];
 int read_counts[MAX_PROCESS_COUNT];
 int other_counts[MAX_PROCESS_COUNT];
 int killed_process[MAX_PROCESS_COUNT];
-//char *processes_name[MAX_PROCESS_COUNT];
+char *processes_name[MAX_PROCESS_COUNT];
 
 int last_index_process = -1;
 long total_sys_call = 0;
 
 asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
+asmlinkage int (*original_kill)(pid_t pid, int sig);
+asmlinkage int (*original_exit)(int status);
 
 static int find_sys_call_table (char *kern_ver) {
     char system_map_entry[MAX_VERSION_LEN];
@@ -204,7 +206,7 @@ int findIndexProcessByPid(int pid) {
 	return index;
 }
 
-int newProcess() {
+int newProcess(void) {
 	int i = 0;
 	int index = -1;
 	// Search killed process
@@ -222,7 +224,7 @@ int newProcess() {
 	}
 	if (last_index_process < MAX_PROCESS_COUNT) {
 		processes[index] = current->pid;
-		//processes_name[index] = current->comm;
+		processes_name[index] = current->comm;
 	} else {
 		printk(KERN_INFO "Error, no hay suficiente espacio en la tabla de procesos.\n");
 	}
@@ -245,20 +247,46 @@ void kill_current_process(int index_process) {
 	  printk(KERN_INFO "error sending signal\n");
 	}
 	killed_process[index_process] = 1;
+	processes_name[index_process] = NULL;
 }
 
-void report() {
-	printk(KERN_INFO "Reporte del detector\n");
+void report(void) {
+	printk(KERN_INFO "##### Reporte del detector #####\n");
 	int i = 0;
+
+	/* Se establece los procesos muertos */
+	struct task_struct* task_list;
+	for (i = 0; i < last_index_process; i++) {
+		if (killed_process[i] == 0) {
+			int is_alive = 0;
+			for_each_process(task_list) {
+				if (processes[i] == task_list->pid) {
+					// Is alive
+					is_alive = 1;
+				}
+			}
+
+			if (is_alive == 0) {
+				killed_process[i] = 1;
+			}
+		}
+	}
+
 	for (i = 0; i <= last_index_process; i++) {
 		if (killed_process[i] == 0) {
+			printk(KERN_INFO "Proceso: %s (%d)", processes_name[i], processes[i]);
 			printk(KERN_INFO "Cantidad de escrituras: %d", write_counts[i]);
 			printk(KERN_INFO "Cantidad de lecturas: %d", read_counts[i]);
 			printk(KERN_INFO "Cantidad de otras: %d", other_counts[i]);
-			break;
+			printk(KERN_INFO "---------------------");
+		} else {
+			printk(KERN_INFO "Proceso - ya muerto: %s (%d)", processes_name[i], processes[i]);
+			printk(KERN_INFO "Cantidad de escrituras: %d", write_counts[i]);
+			printk(KERN_INFO "Cantidad de lecturas: %d", read_counts[i]);
+			printk(KERN_INFO "Cantidad de otras: %d", other_counts[i]);
+			printk(KERN_INFO "---------------------");
 		}
 	}
-	printk(KERN_INFO "Reporte del detector\n");
 }
 
 asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size) {
@@ -295,6 +323,29 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 	return original_write(fd, bytes, size);
 }
 
+asmlinkage int new_kill(pid_t pid, int sig) {
+	printk(KERN_INFO "kill(%d)", sig);
+	if (sig == SIGKILL) {
+		int indexProcess = findIndexProcessByPid(pid);
+		if (indexProcess != -1) {
+			printk(KERN_INFO "Se murió el proceso: %d", pid);
+			killed_process[indexProcess] = 1;
+		}
+	}
+	return original_kill(pid, sig);
+}
+
+asmlinkage int new_exit(int status) {
+	printk(KERN_INFO "exit(%d)", status);
+	int pid = current->pid;
+	int indexProcess = findIndexProcessByPid(pid);
+	if (indexProcess != -1) {
+		printk(KERN_INFO "Se murió el proceso: %d", pid);
+		killed_process[indexProcess] = 1;
+	}
+	return original_exit(status);
+}
+
 static int __init onload(void) {
     int i = 0;
 
@@ -314,6 +365,13 @@ static int __init onload(void) {
         write_cr0 (read_cr0 () & (~ 0x10000));
         original_write = (void *)syscall_table[__NR_write];
         syscall_table[__NR_write] = &new_write;
+
+        original_kill = (void *)syscall_table[__NR_kill];
+        syscall_table[__NR_kill] = &new_kill;
+
+        original_exit = (void *)syscall_table[__NR_exit];
+        syscall_table[__NR_exit] = &new_exit;
+
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
     } else {
@@ -332,6 +390,8 @@ static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
         syscall_table[__NR_write] = original_write;
+        syscall_table[__NR_kill] = original_kill;
+        syscall_table[__NR_exit] = original_exit;
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
     } else {
