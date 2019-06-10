@@ -33,7 +33,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
-asmlinkage long (*original_ptrace)(enum __ptrace_request request, pid_t pid, void *addr, void *data);
+asmlinkage long (*original_ptrace)(int request, pid_t pid, void *addr, void *data);
 asmlinkage int (*original_select)(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 asmlinkage int (*original_access)(const char *pathname, int mode);
 asmlinkage int (*original_munmap)(void *addr, size_t length);
@@ -369,7 +369,7 @@ void updateOtherCounts(void){
 	}
 }
 
-asmlinkage long new_ptrace(enum __ptrace_request request, pid_t pid, void *addr, void *data){
+asmlinkage long new_ptrace(int request, pid_t pid, void *addr, void *data){
 	updateOtherCounts();
 	return original_ptrace(request, pid, addr, data);
 }
