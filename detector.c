@@ -33,7 +33,8 @@ long total_sys_call = 0;
 
 asmlinkage int (*original_ioctl)(int fd, unsigned long request, char *argv);
 asmlinkage int (*original_fcntl)(int fd, int cmd, char *argv);
-/*asmlinkage int (*original_poll)(struct pollfd *fds, nfds_t nfds, int timeout);
+/*asmlinkage ssize_t (*original_sendto)(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen);
+ * asmlinkage int (*original_poll)(struct pollfd *fds, nfds_t nfds, int timeout);
 asmlinkage int (*original_epoll_wait)(int epfd, struct epoll_event *events, int maxevents, int timeout);*/
 asmlinkage ssize_t (*original_recvmsg)(int sockfd, struct msghdr *msg, int flags);
 asmlinkage pid_t (*original_gettid)(void);
@@ -360,6 +361,12 @@ asmlinkage int new_fcntl(int fd, int cmd, char *argv){
 }
 
 /*
+asmlinkage ssize_t new_sendto(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen){
+	updateOtherCounts();
+	return original_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+}*/
+
+/*
 asmlinkage int new_poll(struct pollfd *fds, nfds_t nfds, int timeout){
 	updateOtherCounts();
 	return original_poll(fds, nfds, timeout);
@@ -597,6 +604,9 @@ static int __init onload(void) {
 
         original_fcntl = (void *)syscall_table[__NR_fcntl];
         syscall_table[__NR_fcntl] = &new_fcntl;
+
+        /*original_sendto = (void *)syscall_table[__NR_sendto];
+        syscall_table[__NR_sendto] = &new_sendto;*/
 
         /*original_poll = (void *)syscall_table[__NR_poll];
         syscall_table[__NR_poll] = &new_poll;
