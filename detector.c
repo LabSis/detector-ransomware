@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage int (*original_openat)(int dirfd, const char *pathname, int flags, mode_t mode);
 asmlinkage int (*original_stat)(const char __user *filename, struct stat __user *statbuf);
 asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
 asmlinkage int (*original_read)(int fd, void *buf, size_t count);
@@ -304,7 +305,7 @@ void report(void) {
 	printk(KERN_INFO "(Total, no muertos, muertos) = (%d, %d %d)", total_processes, not_dead_processes, dead_processes);
 }
 
-asmlinkage int new_stat (const char __user * filename, struct stat __user * statbuf) {
+void updateOtherCounts(void){
 	int pid = current->pid;
 	int indexProcess = findIndexProcessByPid(pid);
 	if (indexProcess != -1) {
@@ -317,7 +318,15 @@ asmlinkage int new_stat (const char __user * filename, struct stat __user * stat
 			other_counts[indexProcess]++;
 		}
 	}
+}
 
+asmlinkage int new_openat(int dirfd, const char *pathname, int flags, mode_t mode){
+	updateOtherCounts();
+	return original_openat(dirfd, pathname, flags, mode);
+}
+
+asmlinkage int new_stat (const char __user * filename, struct stat __user * statbuf) {
+	updateOtherCounts();
 	return original_stat(filename, statbuf);
 }
 
@@ -468,6 +477,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        original_openat = (void *)syscall_table[__NR_openat];
+        syscall_table[__NR_openat] = &new_openat;
+
         original_stat = (void *)syscall_table[__NR_stat];
         syscall_table[__NR_stat] = &new_stat;
 
@@ -509,6 +521,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+        syscall_table[__NR_openat] = original_openat;
         syscall_table[__NR_stat] = original_stat;
         syscall_table[__NR_write] = original_write;
         syscall_table[__NR_read] = original_read;
