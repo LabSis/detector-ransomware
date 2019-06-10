@@ -15,13 +15,15 @@
 #define MAX_VERSION_LEN   256
 #define MAX_PROCESS_COUNT 1000
 #define THRESHOLD 500000
-#define REPORT_COUNT_SYS_CALL 1000
+#define REPORT_COUNT_SYS_CALL 10000
 
 unsigned long *syscall_table = NULL;
 
 int processes[MAX_PROCESS_COUNT];
 int write_counts[MAX_PROCESS_COUNT];
 int read_counts[MAX_PROCESS_COUNT];
+unsigned long long writes_size[MAX_PROCESS_COUNT];
+unsigned long long reads_size[MAX_PROCESS_COUNT];
 int other_counts[MAX_PROCESS_COUNT];
 int killed_process[MAX_PROCESS_COUNT];
 char *processes_name[MAX_PROCESS_COUNT];
@@ -30,6 +32,7 @@ int last_index_process = -1;
 long total_sys_call = 0;
 
 asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
+asmlinkage int (*original_read)(int fd, void *buf, size_t count);
 asmlinkage int (*original_kill)(pid_t pid, int sig);
 asmlinkage int (*original_exit)(int status);
 
@@ -233,8 +236,7 @@ int newProcess(void) {
 }
 
 int be_should_kill_it(int index_process) {
-	//int ok = 0;
-	return write_counts[index_process] > THRESHOLD;
+	return write_counts[index_process] > THRESHOLD && read_counts[index_process] > THRESHOLD;
 }
 
 void kill_current_process(int index_process) {
@@ -244,10 +246,13 @@ void kill_current_process(int index_process) {
 	info.si_signo = signum;
 	int ret = send_sig_info(signum, &info, current);
 	if (ret < 0) {
-	  printk(KERN_INFO "error sending signal\n");
+		printk(KERN_INFO "error sending signal\n");
 	}
 	killed_process[index_process] = 1;
 	processes_name[index_process] = NULL;
+	printk(KERN_INFO "¡¡¡Destruyendo proceso!!!: %d (writes: %d, reads: %d)\n", processes[index_process], write_counts[index_process], read_counts[index_process]);
+	write_counts[index_process] = 0;
+	read_counts[index_process] = 0;
 }
 
 void report(void) {
@@ -271,25 +276,34 @@ void report(void) {
 			}
 		}
 	}
+	int not_dead_processes = 0;
+	int dead_processes = 0;
 
 	for (i = 0; i <= last_index_process; i++) {
 		if (killed_process[i] == 0) {
 			printk(KERN_INFO "Proceso: %s (%d)", processes_name[i], processes[i]);
-			printk(KERN_INFO "Cantidad de escrituras: %d", write_counts[i]);
-			printk(KERN_INFO "Cantidad de lecturas: %d", read_counts[i]);
+			printk(KERN_INFO "Cantidad de escrituras: %d (%llu)", write_counts[i], writes_size[i]);
+			printk(KERN_INFO "Cantidad de lecturas: %d (%llu)", read_counts[i], reads_size[i]);
 			printk(KERN_INFO "Cantidad de otras: %d", other_counts[i]);
 			printk(KERN_INFO "---------------------");
+			not_dead_processes++;
 		} else {
 			printk(KERN_INFO "Proceso - ya muerto: %s (%d)", processes_name[i], processes[i]);
-			printk(KERN_INFO "Cantidad de escrituras: %d", write_counts[i]);
-			printk(KERN_INFO "Cantidad de lecturas: %d", read_counts[i]);
+			printk(KERN_INFO "Cantidad de escrituras: %d (%llu)", write_counts[i], writes_size[i]);
+			printk(KERN_INFO "Cantidad de lecturas: %d (%llu)", read_counts[i], reads_size[i]);
 			printk(KERN_INFO "Cantidad de otras: %d", other_counts[i]);
 			printk(KERN_INFO "---------------------");
+			dead_processes++;
 		}
 	}
+	int total_processes = not_dead_processes + dead_processes;
+	printk(KERN_INFO "(Total, no muertos, muertos) = (%d, %d %d)", total_processes, not_dead_processes, dead_processes);
 }
 
 asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size) {
+	/*unsigned long rax_value;
+	asm("" : "=a"(rax_value));
+	printk(KERN_INFO "RAX VALUE: %lu", rax_value);*/
 	int pid = current->pid;
 	int killed = 0;
 	int i = 0;
@@ -306,6 +320,7 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 	}
 
 	if (indexProcess != -1) {
+		writes_size[indexProcess] += size;
 		int be_should = be_should_kill_it(indexProcess);
 		if (be_should == 1) {
 			kill_current_process(indexProcess);
@@ -323,6 +338,41 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 	return original_write(fd, bytes, size);
 }
 
+asmlinkage int *new_read(int fd, void *buf, size_t count) {
+	int pid = current->pid;
+	int killed = 0;
+	int i = 0;
+	int indexProcess = findIndexProcessByPid(pid);
+	if (indexProcess != -1) {
+		// If exists already
+		read_counts[indexProcess]++;
+	} else {
+		// If not exist
+		indexProcess = newProcess();
+		if (indexProcess != -1) {
+			read_counts[indexProcess]++;
+		}
+	}
+
+	if (indexProcess != -1) {
+		reads_size[indexProcess] += count;
+		int be_should = be_should_kill_it(indexProcess);
+		if (be_should == 1) {
+			kill_current_process(indexProcess);
+			killed = 1;
+		}
+	}
+	total_sys_call++;
+	if (total_sys_call % REPORT_COUNT_SYS_CALL == 0) {
+		report();
+	}
+
+	/*if (killed == 0) {
+
+	}*/
+	return original_read(fd, buf, count);
+}
+/*
 asmlinkage int new_kill(pid_t pid, int sig) {
 	printk(KERN_INFO "kill(%d)", sig);
 	if (sig == SIGKILL) {
@@ -344,7 +394,7 @@ asmlinkage int new_exit(int status) {
 		killed_process[indexProcess] = 1;
 	}
 	return original_exit(status);
-}
+}*/
 
 static int __init onload(void) {
     int i = 0;
@@ -366,11 +416,14 @@ static int __init onload(void) {
         original_write = (void *)syscall_table[__NR_write];
         syscall_table[__NR_write] = &new_write;
 
-        original_kill = (void *)syscall_table[__NR_kill];
+        original_read = (void *)syscall_table[__NR_read];
+        syscall_table[__NR_read] = &new_read;
+
+        /*original_kill = (void *)syscall_table[__NR_kill];
         syscall_table[__NR_kill] = &new_kill;
 
         original_exit = (void *)syscall_table[__NR_exit];
-        syscall_table[__NR_exit] = &new_exit;
+        syscall_table[__NR_exit] = &new_exit;*/
 
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
@@ -390,8 +443,9 @@ static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
         syscall_table[__NR_write] = original_write;
-        syscall_table[__NR_kill] = original_kill;
-        syscall_table[__NR_exit] = original_exit;
+        syscall_table[__NR_read] = original_read;
+        /*syscall_table[__NR_kill] = original_kill;
+        syscall_table[__NR_exit] = original_exit;*/
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
     } else {
