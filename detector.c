@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+/*asmlinkage int (*original_poll)(struct pollfd *fds, nfds_t nfds, int timeout);*/
 asmlinkage int (*original_epoll_wait)(int epfd, struct epoll_event *events, int maxevents, int timeout);
 asmlinkage ssize_t (*original_recvmsg)(int sockfd, struct msghdr *msg, int flags);
 asmlinkage pid_t (*original_gettid)(void);
@@ -340,6 +341,11 @@ void updateOtherCounts(void){
 		}
 	}
 }
+/*
+asmlinkage int new_poll(struct pollfd *fds, nfds_t nfds, int timeout){
+	updateOtherCounts();
+	return original_poll(fds, nfds, timeout);
+}*/
 
 asmlinkage int new_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout){
 	updateOtherCounts();
@@ -567,6 +573,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        /*original_poll = (void *)syscall_table[__NR_poll];
+        syscall_table[__NR_poll] = &new_poll;*/
+
         original_epoll_wait = (void *)syscall_table[__NR_epoll_wait];
         syscall_table[__NR_epoll_wait] = &new_epoll_wait;
 
@@ -662,6 +671,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+		/*syscall_table[__NR_poll] = original_poll;*/
 		syscall_table[__NR_epoll_wait] = original_epoll_wait;
         syscall_table[__NR_recvmsg] = original_recvmsg;
         syscall_table[__NR_gettid] = original_gettid;
