@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage int (*original_close)(int fd);
 asmlinkage int (*original_fstat)(int fd, struct stat *buf);
 asmlinkage int (*original_openat)(int dirfd, const char *pathname, int flags, mode_t mode);
 asmlinkage int (*original_stat)(const char __user *filename, struct stat __user *statbuf);
@@ -325,6 +326,11 @@ void updateOtherCounts(void){
 	}
 }
 
+asmlinkage int new_close(int fd){
+	updateOtherCounts();
+	return original_close(fd);
+}
+
 asmlinkage int new_fstat(int fd, struct stat *buf){
 	updateOtherCounts();
 	return original_fstat(fd, buf);
@@ -490,6 +496,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        original_close = (void *)syscall_table[__NR_close];
+        syscall_table[__NR_close] = &new_close;
+
         original_fstat = (void *)syscall_table[__NR_fstat];
         syscall_table[__NR_fstat] = &new_fstat;
 
@@ -549,6 +558,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+        syscall_table[__NR_close] = original_close;
         syscall_table[__NR_fstat] = original_fstat;
         syscall_table[__NR_openat] = original_openat;
         syscall_table[__NR_stat] = original_stat;
