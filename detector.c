@@ -303,7 +303,7 @@ void kill_current_process(int index_process) {
 		printk(KERN_INFO "error sending signal\n");
 	}
 	killed_process[index_process] = 1;
-	printk(KERN_INFO "¡¡¡Destruyendo proceso!!!: %d (writes: %d, reads: %d)\n", processes[index_process], write_counts[index_process], read_counts[index_process]);
+	printk(KERN_INFO "¡¡¡Destruyendo proceso!!!: %d (%s) (writes: %d (%d), reads: %d (%d), others: %d)\n", processes[index_process], processes_name[index_process], write_counts[index_process], writes_size[index_process], read_counts[index_process], reads_size[index_process], other_counts[index_process]);
 }
 
 void report(void) {
@@ -715,14 +715,14 @@ static int __init onload(void) {
         original_getrandom = (void *)syscall_table[__NR_getrandom];
         syscall_table[__NR_getrandom] = (long) &new_getrandom;
 
-        /*original_rt_sigprocmask = (void *)syscall_table[__NR_rt_sigprocmask];
+        original_rt_sigprocmask = (void *)syscall_table[__NR_rt_sigprocmask];
         syscall_table[__NR_rt_sigprocmask] = &new_rt_sigprocmask;
 
         original_clock_gettime = (void *)syscall_table[__NR_clock_gettime];
         syscall_table[__NR_clock_gettime] = &new_clock_gettime;
 
         original_dup = (void *)syscall_table[__NR_dup];
-        syscall_table[__NR_dup] = &new_dup;*/
+        syscall_table[__NR_dup] = &new_dup;
 
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
