@@ -31,7 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
-asmlinkage int (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+asmlinkage void* (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
 asmlinkage int (*original_lseek)(int fd, off_t offset, int whence);
 asmlinkage int (*original_close)(int fd);
 asmlinkage int (*original_fstat)(int fd, struct stat *buf);
@@ -48,6 +48,10 @@ asmlinkage gid_t (*original_getgid)(void);
 asmlinkage gid_t (*original_getegid)(void);
 /*asmlinkage int (*original_execve)(const char *pathname, char *const argv[], char *const envp[]);*/
 asmlinkage ssize_t (*original_getrandom)(void *buf, size_t buflen, unsigned int flags);
+/*asmlinkage int (*original_rt_sigprocmask)(int how, const sigset_t *set, sigset_t *oldset);
+asmlinkage int (*original_clock_gettime)(clockid_t clk_id, struct timespec *tp);
+asmlinkage int (*original_dup)(int oldfd);*/
+
 
 static int find_sys_call_table (char *kern_ver) {
     char system_map_entry[MAX_VERSION_LEN];
@@ -396,7 +400,7 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 	return original_write(fd, bytes, size);
 }
 
-asmlinkage int *new_read(int fd, void *buf, size_t count) {
+asmlinkage int new_read(int fd, void *buf, size_t count) {
 	int pid = current->pid;
 	int killed = 0;
 	int i = 0;
@@ -490,6 +494,22 @@ asmlinkage ssize_t new_getrandom(void *buf, size_t buflen, unsigned int flags) {
 	return original_getrandom(buf, buflen, flags);
 }
 
+/*asmlinkage int new_rt_sigprocmask(int how, const sigset_t *set, sigset_t *oldset) {
+	updateOtherCounts();
+	return original_rt_sigprocmask(how, set, oldset);
+}
+
+asmlinkage int new_clock_gettime(clockid_t clk_id, struct timespec *tp) {
+	updateOtherCounts();
+	return original_clock_gettime(clk_id, tp);
+}
+
+asmlinkage int new_dup(int oldfd) {
+	updateOtherCounts();
+	return original_dup(oldfd);
+}*/
+
+
 static int __init onload(void) {
     int i = 0;
 
@@ -559,6 +579,15 @@ static int __init onload(void) {
         original_getrandom = (void *)syscall_table[__NR_getrandom];
         syscall_table[__NR_getrandom] = &new_getrandom;
 
+        /*original_rt_sigprocmask = (void *)syscall_table[__NR_rt_sigprocmask];
+        syscall_table[__NR_rt_sigprocmask] = &new_rt_sigprocmask;
+
+        original_clock_gettime = (void *)syscall_table[__NR_clock_gettime];
+        syscall_table[__NR_clock_gettime] = &new_clock_gettime;
+
+        original_dup = (void *)syscall_table[__NR_dup];
+        syscall_table[__NR_dup] = &new_dup;*/
+
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
     } else {
@@ -593,6 +622,10 @@ static void __exit onunload(void) {
         syscall_table[__NR_getegid] = original_getegid;
         /*syscall_table[__NR_execve] = original_execve;*/
         syscall_table[__NR_getrandom] = original_getrandom;
+        /*syscall_table[__NR_rt_sigprocmask] = original_rt_sigprocmask;
+        syscall_table[__NR_clock_gettime] = original_clock_gettime;
+        syscall_table[__NR_dup] = original_dup;*/
+
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
     } else {
