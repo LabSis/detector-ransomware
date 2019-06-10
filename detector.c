@@ -446,8 +446,7 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 	asm("" : "=a"(rax_value));
 	printk(KERN_INFO "RAX VALUE: %lu", rax_value);*/
 	int pid = current->pid;
-	int killed = 0;
-	int i = 0;
+	int be_should = 0;
 	int indexProcess = findIndexProcessByPid(pid);
 	if (indexProcess != -1) {
 		// If exists already
@@ -462,10 +461,9 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 
 	if (indexProcess != -1) {
 		writes_size[indexProcess] += size;
-		int be_should = be_should_kill_it(indexProcess);
+		be_should = be_should_kill_it(indexProcess);
 		if (be_should == 1) {
 			kill_current_process(indexProcess);
-			killed = 1;
 		}
 	}
 	total_sys_call++;
@@ -473,16 +471,12 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 		report();
 	}
 
-	/*if (killed == 0) {
-
-	}*/
 	return original_write(fd, bytes, size);
 }
 
 asmlinkage int new_read(int fd, void *buf, size_t count) {
 	int pid = current->pid;
-	int killed = 0;
-	int i = 0;
+	int be_should = 0;
 	int indexProcess = findIndexProcessByPid(pid);
 	if (indexProcess != -1) {
 		// If exists already
@@ -497,10 +491,9 @@ asmlinkage int new_read(int fd, void *buf, size_t count) {
 
 	if (indexProcess != -1) {
 		reads_size[indexProcess] += count;
-		int be_should = be_should_kill_it(indexProcess);
+		be_should = be_should_kill_it(indexProcess);
 		if (be_should == 1) {
 			kill_current_process(indexProcess);
-			killed = 1;
 		}
 	}
 	total_sys_call++;
@@ -508,9 +501,6 @@ asmlinkage int new_read(int fd, void *buf, size_t count) {
 		report();
 	}
 
-	/*if (killed == 0) {
-
-	}*/
 	return original_read(fd, buf, count);
 }
 
