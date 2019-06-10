@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+/*asmlinkage ssize_t (*original_sendto)(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen);*/
 /*asmlinkage int (*original_poll)(struct pollfd *fds, nfds_t nfds, int timeout);*/
 asmlinkage int (*original_epoll_wait)(int epfd, struct epoll_event *events, int maxevents, int timeout);
 asmlinkage ssize_t (*original_recvmsg)(int sockfd, struct msghdr *msg, int flags);
@@ -341,6 +342,13 @@ void updateOtherCounts(void){
 		}
 	}
 }
+
+/*
+asmlinkage ssize_t new_sendto(int sockfd, const void *buf, size_t len, int flags, const struct sockaddr *dest_addr, socklen_t addrlen){
+	updateOtherCounts();
+	return original_sendto(sockfd, buf, len, flags, dest_addr, addrlen);
+}*/
+
 /*
 asmlinkage int new_poll(struct pollfd *fds, nfds_t nfds, int timeout){
 	updateOtherCounts();
@@ -572,6 +580,9 @@ static int __init onload(void) {
 
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+
+        /*original_sendto = (void *)syscall_table[__NR_sendto];
+        syscall_table[__NR_sendto] = &new_sendto;
 
         /*original_poll = (void *)syscall_table[__NR_poll];
         syscall_table[__NR_poll] = &new_poll;*/
