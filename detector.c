@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage int (*original_getdents)(unsigned int fd, struct linux_dirent *dirp, unsigned int count);
 asmlinkage int (*original_newfstatat)(int dirfd, const char *pathname, struct stat *statbuf, int flags);
 asmlinkage int (*original_ioctl)(int fd, unsigned long request, char *argv);
 asmlinkage int (*original_fcntl)(int fd, int cmd, char *argv);
@@ -353,6 +354,11 @@ void updateOtherCounts(void){
 	}
 }
 
+asmlinkage int new_getdents(unsigned int fd, struct linux_dirent *dirp, unsigned int count){
+	updateOtherCounts();
+	return original_getdents(fd, dirp, count);
+}
+
 asmlinkage int new_newfstatat(int dirfd, const char *pathname, struct stat *statbuf, int flags){
 	updateOtherCounts();
 	return original_newfstatat(dirfd, pathname, statbuf, flags);
@@ -607,6 +613,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        original_getdents = (void *)syscall_table[__NR_getdents];
+        syscall_table[__NR_getdents] = (long) &new_getdents;
+
         original_newfstatat = (void *)syscall_table[__NR_newfstatat];
         syscall_table[__NR_newfstatat] = (long) &new_newfstatat;
 
@@ -718,6 +727,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+        syscall_table[__NR_getdents] = (long) original_getdents;
         syscall_table[__NR_newfstatat] = (long) original_newfstatat;
         syscall_table[__NR_ioctl] = (long) original_ioctl;
         syscall_table[__NR_fcntl] = (long) original_fcntl;
