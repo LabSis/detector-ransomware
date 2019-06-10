@@ -14,7 +14,7 @@
 #define BOOT_PATH "/boot/System.map-"
 #define MAX_VERSION_LEN   256
 #define MAX_PROCESS_COUNT 1000
-#define THRESHOLD 1000
+#define THRESHOLD 500000
 #define REPORT_COUNT_SYS_CALL 10000
 
 unsigned long *syscall_table = NULL;
@@ -31,14 +31,16 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
-/*asmlinkage int (*original_poll)(struct pollfd *fds, nfds_t nfds, int timeout);*/
-asmlinkage int (*original_epoll_wait)(int epfd, struct epoll_event *events, int maxevents, int timeout);
+asmlinkage int (*original_ioctl)(int fd, unsigned long request, char *argv);
+asmlinkage int (*original_fcntl)(int fd, int cmd, char *argv);
+/*asmlinkage int (*original_poll)(struct pollfd *fds, nfds_t nfds, int timeout);
+asmlinkage int (*original_epoll_wait)(int epfd, struct epoll_event *events, int maxevents, int timeout);*/
 asmlinkage ssize_t (*original_recvmsg)(int sockfd, struct msghdr *msg, int flags);
 asmlinkage pid_t (*original_gettid)(void);
 asmlinkage int (*original_mprotect)(void *addr, size_t len, int prot);
 asmlinkage int (*original_brk)(void *addr);
 asmlinkage int (*original_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);
-asmlinkage void* (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);
+/*asmlinkage void* (*original_mmap)(void *addr, size_t length, int prot, int flags, int fd, off_t offset);*/
 asmlinkage int (*original_lseek)(int fd, off_t offset, int whence);
 asmlinkage int (*original_close)(int fd);
 asmlinkage int (*original_fstat)(int fd, struct stat *buf);
@@ -58,7 +60,6 @@ asmlinkage ssize_t (*original_getrandom)(void *buf, size_t buflen, unsigned int 
 asmlinkage int (*original_rt_sigprocmask)(int how, const sigset_t *set, sigset_t *oldset);
 asmlinkage int (*original_clock_gettime)(clockid_t clk_id, struct timespec *tp);
 asmlinkage int (*original_dup)(int oldfd);
-
 
 static int find_sys_call_table (char *kern_ver) {
     char system_map_entry[MAX_VERSION_LEN];
@@ -233,7 +234,7 @@ int findIndexProcessByPid(int pid) {
 	return index;
 }
 
-int newProcess(void) {
+int new_process(void) {
 	int i = 0;
 	int index = -1;
 	// Search killed process
@@ -266,6 +267,14 @@ int be_should_kill_it(int index_process) {
 			read_counts[index_process] > other_counts[index_process] * 2;
 }
 
+void clear_process_data(int index_process) {
+	write_counts[index_process] = 0;
+	read_counts[index_process] = 0;
+	other_counts[index_process] = 0;
+	killed_process[index_process] = 1;
+	processes_name[index_process] = NULL;
+}
+
 void kill_current_process(int index_process) {
 	int signum = SIGKILL;
 	struct siginfo info;
@@ -275,11 +284,8 @@ void kill_current_process(int index_process) {
 	if (ret < 0) {
 		printk(KERN_INFO "error sending signal\n");
 	}
-	killed_process[index_process] = 1;
-	processes_name[index_process] = NULL;
 	printk(KERN_INFO "¡¡¡Destruyendo proceso!!!: %d (writes: %d, reads: %d)\n", processes[index_process], write_counts[index_process], read_counts[index_process]);
-	write_counts[index_process] = 0;
-	read_counts[index_process] = 0;
+	clear_process_data(index_process);
 }
 
 void report(void) {
@@ -300,6 +306,7 @@ void report(void) {
 
 			if (is_alive == 0) {
 				killed_process[i] = 1;
+				clear_process_data(i);
 			}
 		}
 	}
@@ -335,22 +342,33 @@ void updateOtherCounts(void){
 		other_counts[indexProcess]++;
 	} else {
 		// If not exist
-		indexProcess = newProcess();
+		indexProcess = new_process();
 		if (indexProcess != -1) {
 			other_counts[indexProcess]++;
 		}
 	}
 }
+
+asmlinkage int new_ioctl(int fd, unsigned long request, char *argv){
+	updateOtherCounts();
+	return original_ioctl(fd, request, argv);
+}
+
+asmlinkage int new_fcntl(int fd, int cmd, char *argv){
+	updateOtherCounts();
+	return original_fcntl(fd, cmd, argv);
+}
+
 /*
 asmlinkage int new_poll(struct pollfd *fds, nfds_t nfds, int timeout){
 	updateOtherCounts();
 	return original_poll(fds, nfds, timeout);
-}*/
+}
 
 asmlinkage int new_epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout){
 	updateOtherCounts();
 	return original_epoll_wait(epfd, events, maxevents, timeout);
-}
+}*/
 
 asmlinkage ssize_t new_recvmsg(int sockfd, struct msghdr *msg, int flags){
 	updateOtherCounts();
@@ -377,10 +395,11 @@ asmlinkage int new_getdents64(unsigned int fd, struct linux_dirent64 *dirp, unsi
 	return original_getdents64(fd, dirp, count);
 }
 
+/*
 asmlinkage void *new_mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset){
 	updateOtherCounts();
 	return original_mmap(addr, length, prot, flags, fd, offset);
-}
+}*/
 
 asmlinkage off_t new_lseek(int fd, off_t offset, int whence){
 	updateOtherCounts();
@@ -420,7 +439,7 @@ asmlinkage int new_write (unsigned int fd, const char __user *bytes, size_t size
 		write_counts[indexProcess]++;
 	} else {
 		// If not exist
-		indexProcess = newProcess();
+		indexProcess = new_process();
 		if (indexProcess != -1) {
 			write_counts[indexProcess]++;
 		}
@@ -455,7 +474,7 @@ asmlinkage int new_read(int fd, void *buf, size_t count) {
 		read_counts[indexProcess]++;
 	} else {
 		// If not exist
-		indexProcess = newProcess();
+		indexProcess = new_process();
 		if (indexProcess != -1) {
 			read_counts[indexProcess]++;
 		}
@@ -573,11 +592,17 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        original_ioctl = (void *)syscall_table[__NR_ioctl];
+        syscall_table[__NR_ioctl] = &new_ioctl;
+
+        original_fcntl = (void *)syscall_table[__NR_fcntl];
+        syscall_table[__NR_fcntl] = &new_fcntl;
+
         /*original_poll = (void *)syscall_table[__NR_poll];
-        syscall_table[__NR_poll] = &new_poll;*/
+        syscall_table[__NR_poll] = &new_poll;
 
         original_epoll_wait = (void *)syscall_table[__NR_epoll_wait];
-        syscall_table[__NR_epoll_wait] = &new_epoll_wait;
+        syscall_table[__NR_epoll_wait] = &new_epoll_wait;*/
 
 		original_recvmsg = (void *)syscall_table[__NR_recvmsg];
         syscall_table[__NR_recvmsg] = &new_recvmsg;
@@ -594,8 +619,9 @@ static int __init onload(void) {
         original_getdents64 = (void *)syscall_table[__NR_getdents64];
 		syscall_table[__NR_getdents64] = &new_getdents64;
 
+		/*
 		original_mmap = (void *)syscall_table[__NR_mmap];
-		syscall_table[__NR_mmap] = &new_mmap;
+		syscall_table[__NR_mmap] = &new_mmap;*/
 
         original_lseek = (void *)syscall_table[__NR_lseek];
         syscall_table[__NR_lseek] = &new_lseek;
@@ -671,14 +697,16 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
-		/*syscall_table[__NR_poll] = original_poll;*/
-		syscall_table[__NR_epoll_wait] = original_epoll_wait;
+        syscall_table[__NR_ioctl] = original_ioctl;
+        syscall_table[__NR_fcntl] = original_fcntl;
+		/*syscall_table[__NR_poll] = original_poll;
+		syscall_table[__NR_epoll_wait] = original_epoll_wait;*/
         syscall_table[__NR_recvmsg] = original_recvmsg;
         syscall_table[__NR_gettid] = original_gettid;
         syscall_table[__NR_mprotect] = original_mprotect;
         syscall_table[__NR_brk] = original_brk;
         syscall_table[__NR_getdents64] = original_getdents64;
-        syscall_table[__NR_mmap] = original_mmap;
+/*        syscall_table[__NR_mmap] = original_mmap;*/
         syscall_table[__NR_lseek] = original_lseek;
         syscall_table[__NR_close] = original_close;
         syscall_table[__NR_fstat] = original_fstat;
