@@ -35,6 +35,7 @@ asmlinkage int (*original_write)(unsigned int, const char __user *, size_t);
 asmlinkage int (*original_read)(int fd, void *buf, size_t count);
 asmlinkage int (*original_kill)(pid_t pid, int sig);
 asmlinkage int (*original_exit)(int status);
+asmlinkage long (*original_set_robust_list)(struct robust_list_head *head, size_t len);
 
 static int find_sys_call_table (char *kern_ver) {
     char system_map_entry[MAX_VERSION_LEN];
@@ -372,6 +373,7 @@ asmlinkage int *new_read(int fd, void *buf, size_t count) {
 	}*/
 	return original_read(fd, buf, count);
 }
+
 /*
 asmlinkage int new_kill(pid_t pid, int sig) {
 	printk(KERN_INFO "kill(%d)", sig);
@@ -395,6 +397,22 @@ asmlinkage int new_exit(int status) {
 	}
 	return original_exit(status);
 }*/
+
+asmlinkage long new_set_robust_list(struct robust_list_head *head, size_t len) {
+	int pid = current->pid;
+	int indexProcess = findIndexProcessByPid(pid);
+	if (indexProcess != -1) {
+		// If exists already
+		other_counts[indexProcess]++;
+	} else {
+		// If not exist
+		indexProcess = newProcess();
+		if (indexProcess != -1) {
+			other_counts[indexProcess]++;
+		}
+	}
+	return new_set_robust_list(head, len);
+}
 
 static int __init onload(void) {
     int i = 0;
@@ -425,6 +443,9 @@ static int __init onload(void) {
         original_exit = (void *)syscall_table[__NR_exit];
         syscall_table[__NR_exit] = &new_exit;*/
 
+        original_set_robust_list = (void *)syscall_table[__NR_set_robust_list];
+        syscall_table[__NR_set_robust_list] = &new_set_robust_list;
+
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
     } else {
@@ -446,6 +467,7 @@ static void __exit onunload(void) {
         syscall_table[__NR_read] = original_read;
         /*syscall_table[__NR_kill] = original_kill;
         syscall_table[__NR_exit] = original_exit;*/
+        syscall_table[__NR_set_robust_list] = original_set_robust_list;
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
     } else {
