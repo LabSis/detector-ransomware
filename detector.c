@@ -428,34 +428,17 @@ asmlinkage int new_exit(int status) {
 }*/
 
 asmlinkage long new_set_robust_list(struct robust_list_head *head, size_t len) {
-	int pid = current->pid;
-	int indexProcess = findIndexProcessByPid(pid);
-	if (indexProcess != -1) {
-		// If exists already
-		other_counts[indexProcess]++;
-	} else {
-		// If not exist
-		indexProcess = newProcess();
-		if (indexProcess != -1) {
-			other_counts[indexProcess]++;
-		}
-	}
+	updateOtherCounts();
 	return original_set_robust_list(head, len);
 }
 
 asmlinkage uid_t new_getuid(void) {
-	int pid = current->pid;
-	int indexProcess = findIndexProcessByPid(pid);
-	if (indexProcess != -1) {
-		// If exists already
-		other_counts[indexProcess]++;
-	} else {
-		// If not exist
-		indexProcess = newProcess();
-		if (indexProcess != -1) {
-			other_counts[indexProcess]++;
-		}
-	}
+	updateOtherCounts();
+	return original_getuid();
+}
+
+asmlinkage uid_t new_geteuid(void) {
+	updateOtherCounts();
 	return original_getuid();
 }
 
