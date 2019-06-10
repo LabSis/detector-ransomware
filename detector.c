@@ -33,6 +33,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage long (*original_ptrace)(enum __ptrace_request request, pid_t pid, void *addr, void *data);
 asmlinkage int (*original_select)(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout);
 asmlinkage int (*original_access)(const char *pathname, int mode);
 asmlinkage int (*original_munmap)(void *addr, size_t length);
@@ -368,6 +369,11 @@ void updateOtherCounts(void){
 	}
 }
 
+asmlinkage long new_ptrace(enum __ptrace_request request, pid_t pid, void *addr, void *data){
+	updateOtherCounts();
+	return original_ptrace(request, pid, addr, data);
+}
+
 asmlinkage int new_select(int nfds, fd_set *readfds, fd_set *writefds, fd_set *exceptfds, struct timeval *timeout){
 	updateOtherCounts();
 	return original_select(nfds, readfds, writefds, exceptfds, timeout);
@@ -628,6 +634,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+        original_ptrace = (void *)syscall_table[__NR_ptrace];
+        syscall_table[__NR_ptrace] = (unsigned long) &new_ptrace;
+
         original_select = (void *)syscall_table[__NR_select];
         syscall_table[__NR_select] = (unsigned long) &new_select;
 
@@ -752,6 +761,7 @@ static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
         printk(KERN_INFO "Modo no protegido\n");
+        syscall_table[__NR_ptrace] = (long) original_ptrace;
 		syscall_table[__NR_select] = (long) original_select;
         syscall_table[__NR_access] = (long) original_access;
         syscall_table[__NR_munmap] = (long) original_munmap;
