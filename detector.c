@@ -38,6 +38,7 @@ asmlinkage int (*original_kill)(pid_t pid, int sig);
 asmlinkage int (*original_exit)(int status);
 asmlinkage long (*original_set_robust_list)(struct robust_list_head *head, size_t len);
 asmlinkage uid_t (*original_getuid)(void);
+asmlinkage uid_t (*original_geteuid)(void);
 
 static int find_sys_call_table (char *kern_ver) {
     char system_map_entry[MAX_VERSION_LEN];
@@ -488,6 +489,9 @@ static int __init onload(void) {
         original_getuid = (void *)syscall_table[__NR_getuid];
         syscall_table[__NR_getuid] = &new_getuid;
 
+        original_geteuid = (void *)syscall_table[__NR_geteuid];
+        syscall_table[__NR_geteuid] = &new_geteuid;
+
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware activado\n");
     } else {
@@ -512,6 +516,7 @@ static void __exit onunload(void) {
         syscall_table[__NR_exit] = original_exit;*/
         syscall_table[__NR_set_robust_list] = original_set_robust_list;
         syscall_table[__NR_getuid] = original_getuid;
+        syscall_table[__NR_geteuid] = original_geteuid;
         write_cr0 (read_cr0 () | 0x10000);
         printk(KERN_INFO "Detector de Ransomware desactivado\n");
     } else {
