@@ -31,6 +31,7 @@ char *processes_name[MAX_PROCESS_COUNT];
 int last_index_process = -1;
 long total_sys_call = 0;
 
+asmlinkage pid_t (*original_gettid)(void);
 asmlinkage int (*original_mprotect)(void *addr, size_t len, int prot);
 asmlinkage int (*original_brk)(void *addr);
 asmlinkage int (*original_getdents64)(unsigned int fd, struct linux_dirent64 *dirp, unsigned int count);
@@ -338,6 +339,11 @@ void updateOtherCounts(void){
 	}
 }
 
+asmlinkage pid_t new_gettid(void){
+	updateOtherCounts();
+	return original_gettid();
+}
+
 asmlinkage int new_mprotect(void *addr, size_t len, int prot){
 	updateOtherCounts();
 	return original_mprotect(addr, len, prot);
@@ -549,6 +555,9 @@ static int __init onload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
 
+		original_gettid = (void *)syscall_table[__NR_gettid];
+        syscall_table[__NR_gettid] = &new_gettid;
+
         original_mprotect = (void *)syscall_table[__NR_mprotect];
         syscall_table[__NR_mprotect] = &new_mprotect;
 
@@ -635,6 +644,7 @@ static int __init onload(void) {
 static void __exit onunload(void) {
     if (syscall_table != NULL) {
         write_cr0 (read_cr0 () & (~ 0x10000));
+        syscall_table[__NR_gettid] = original_gettid;
         syscall_table[__NR_mprotect] = original_mprotect;
         syscall_table[__NR_brk] = original_brk;
         syscall_table[__NR_getdents64] = original_getdents64;
