@@ -17,7 +17,7 @@
 #define MAX_PROCESS_NAME_LENGTH 50
 #define THRESHOLD 1000
 #define REPORT_COUNT_SYS_CALL 10000
-#define REPORT_SIGNAL 31
+#define REPORT_SIGNAL 32
 
 unsigned long *syscall_table = NULL;
 
